@@ -6,22 +6,32 @@ const app = express();
 const port = Number(process.env.PORT) || 5000;
 
 // CORS (without external dependency)
-const allowedOrigin = process.env.FRONTEND_URL || "*";
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  "https://purefire-frontend.vercel.app",
+  "http://localhost:5173",
+  "http://localhost:5174",
+].filter(Boolean);
+
 app.use((req, res, next) => {
-  const originToSend =
-    allowedOrigin === "*" ? req.headers.origin || "*" : allowedOrigin;
-  res.header("Access-Control-Allow-Origin", originToSend);
-  res.header("Access-Control-Allow-Credentials", "true");
-  res.header(
-    "Access-Control-Allow-Headers",
-    "Origin, X-Requested-With, Content-Type, Accept, Authorization"
-  );
-  res.header(
-    "Access-Control-Allow-Methods",
-    "GET,POST,PUT,PATCH,DELETE,OPTIONS"
-  );
-  if (req.method === "OPTIONS") {
-    return res.sendStatus(204);
+  const origin = req.headers.origin;
+  if (origin && allowedOrigins.includes(origin)) {
+    res.header("Access-Control-Allow-Origin", origin);
+    res.header("Access-Control-Allow-Credentials", "true");
+    res.header(
+      "Access-Control-Allow-Headers",
+      "Origin, X-Requested-With, Content-Type, Accept, Authorization"
+    );
+    res.header(
+      "Access-Control-Allow-Methods",
+      "GET,POST,PUT,PATCH,DELETE,OPTIONS"
+    );
+    if (req.method === "OPTIONS") {
+      return res.sendStatus(204);
+    }
+  } else if (req.method === "OPTIONS") {
+    // Block disallowed origins early
+    return res.sendStatus(403);
   }
   next();
 });
