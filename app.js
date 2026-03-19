@@ -1,6 +1,9 @@
 import express from "express";
 import "./config/env.js"; // ensure .env is loaded
 import { connectDB } from "./config/db.js";
+import adminRouter from "./router/admin.router.js";
+import userRouter from "./router/user.router.js";
+import authRouter from "./router/auth.router.js";
 
 const app = express();
 const port = Number(process.env.PORT) || 5000;
@@ -50,29 +53,12 @@ const startServer = async () => {
     process.exit(1);
   }
 
-  try {
-    const { default: adminRouter } = await import("./router/admin.router.js");
-    app.use("/admin", adminRouter);
-    console.log("Admin routes loaded at /admin");
-  } catch (error) {
-    console.warn("Admin routes not loaded:", error.message);
-  }
-
-  try {
-    const { default: userRouter } = await import("./router/user.router.js");
-    app.use("/user", userRouter);
-    console.log("User routes loaded at /user");
-  } catch (error) {
-    console.warn("User routes not loaded:", error.message);
-  }
-
-  try {
-    const { default: authRouter } = await import("./router/auth.router.js");
-    app.use("/api/auth", authRouter);
-    console.log("Auth routes loaded at /api/auth");
-  } catch (error) {
-    console.warn("Auth routes not loaded:", error.message);
-  }
+  app.use("/admin", adminRouter);
+  app.use("/user", userRouter);
+  app.use("/api/auth", authRouter);
+  console.log("Admin routes loaded at /admin");
+  console.log("User routes loaded at /user");
+  console.log("Auth routes loaded at /api/auth");
 
   app.listen(port, () => {
     console.log(`Server running on http://localhost:${port}`);
