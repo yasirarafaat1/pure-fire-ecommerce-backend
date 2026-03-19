@@ -25,6 +25,15 @@ const OrdersSchema = new mongoose.Schema(
     country: { type: String },
     pinCode: { type: String },
     addressType: { type: String },
+    delivery_provider: { type: String, default: "Shiprocket" },
+    shiprocket_order_id: { type: Number },
+    shiprocket_shipment_id: { type: Number },
+    shiprocket_awb: { type: String },
+    courier_company_id: { type: Number },
+    courier_name: { type: String },
+    courier_rate: { type: Number },
+    courier_etd: { type: Number },
+    shiprocket_error: { type: String },
   },
   { timestamps: true }
 );

@@ -1,12 +1,26 @@
 import Products from "../model/product.model.js";
 import { Catagories } from "../model/catagory.model.js";
 import Reviews from "../model/review.model.js";
+import Cart from "../model/cart.model.js";
 import Addresses from "../model/addresses.model.js";
 import { getNextSequence } from "../model/counter.model.js";
 import { uploadToCloudinary } from "../config/cloudinary.js";
 import Profile from "../model/profile.model.js";
 import Wishlist from "../model/wishlist.model.js";
 import Orders from "../model/orders.model.js";
+import {
+  createShiprocketShipment,
+  getDeliveryEstimate,
+  getMockOrderStatus,
+  isShiprocketTestMode,
+} from "../config/shiprocket.js";
+import {
+  buildProductSearchFilter,
+  filterProductsByColorName,
+  pickMatchedColor,
+  parseSearchQuery,
+  buildTokenRegex,
+} from "../utils/search.js";
 
 const parsePageLimit = (req) => {
   const page = Math.max(parseInt(req.query.page || "1", 10), 1);
@@ -21,11 +35,26 @@ export const showProducts = async (req, res) => {
     const products = await Products.find({})
       .sort({ product_id: -1 })
       .skip((page - 1) * limit)
-      .limit(limit);
+      .limit(limit)
+      .populate({ path: "catagory_id", select: "name parent ancestors" })
+      .lean();
+
+    const ids = products.map((p) => p.product_id).filter(Boolean);
+    const reviewAgg = ids.length
+      ? await Reviews.aggregate([
+          { $match: { product_id: { $in: ids } } },
+          { $group: { _id: "$product_id", reviewCount: { $sum: 1 }, avgRating: { $avg: "$rating" } } },
+        ])
+      : [];
+    const reviewMap = new Map(reviewAgg.map((r) => [r._id, r]));
+    const shaped = products.map((p) => {
+      const stats = reviewMap.get(p.product_id) || {};
+      return { ...p, reviewCount: stats.reviewCount || 0, avgRating: stats.avgRating || 0 };
+    });
 
     return res.status(200).json({
       status: true,
-      products,
+      products: shaped,
       pagination: { page, limit, total },
     });
   } catch (error) {
@@ -92,28 +121,84 @@ export const getProductByCategory = async (req, res) => {
 
 export const searchProducts = async (req, res) => {
   try {
-    const { search = "", price, page = 1, limit = 12 } = req.body || {};
+    const payload = req.body || {};
+    const query = req.query || {};
+    const search = (payload.search || query.search || "").toString();
+    const page = payload.page || query.page || 1;
+    const limit = payload.limit || query.limit || 12;
+
     const pageNum = Math.max(parseInt(page, 10), 1);
     const limitNum = Math.max(Math.min(parseInt(limit, 10), 100), 1);
 
-    const q = search.trim();
-    const filter = {};
-    if (q) {
-      filter.$or = [
-        { name: { $regex: q, $options: "i" } },
-        { title: { $regex: q, $options: "i" } },
-        { description: { $regex: q, $options: "i" } },
-      ];
+    const parsed = parseSearchQuery(search);
+    const categoryTokenMap = new Map();
+    if (parsed.textTokens?.length) {
+      await Promise.all(
+        parsed.textTokens.map(async (token) => {
+          const regex = buildTokenRegex(token);
+          if (!regex) {
+            categoryTokenMap.set(token, []);
+            return;
+          }
+          const cats = await Catagories.find({
+            $or: [{ name: regex }, { "ancestors.name": regex }],
+          }).select("_id");
+          categoryTokenMap.set(
+            token,
+            cats.map((c) => c._id)
+          );
+        })
+      );
     }
-    if (price) {
-      filter.price = { $lte: Number(price) };
+    let categoryIntersection = [];
+    if (parsed.textTokens?.length) {
+      const allHaveCats = parsed.textTokens.every(
+        (token) => (categoryTokenMap.get(token) || []).length
+      );
+      if (allHaveCats) {
+        const sets = parsed.textTokens.map((token) =>
+          (categoryTokenMap.get(token) || []).map((id) => String(id))
+        );
+        categoryIntersection = sets.reduce((acc, curr) => acc.filter((id) => curr.includes(id)));
+      }
+    }
+    let fallbackCategoryIds = [];
+    if (search.trim()) {
+      const fullRegex = new RegExp(search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+      const cats = await Catagories.find({
+        $or: [{ name: fullRegex }, { "ancestors.name": fullRegex }],
+      }).select("_id");
+      fallbackCategoryIds = cats.map((c) => c._id);
     }
 
+    const { filter } = buildProductSearchFilter(search, {
+      parsed,
+      categoryTokenMap,
+      fallbackCategoryIds,
+    });
+    if (categoryIntersection.length) {
+      if (filter.$and) filter.$and.push({ catagory_id: { $in: categoryIntersection } });
+      else filter.catagory_id = { $in: categoryIntersection };
+    }
+    if (filter.$and) filter.$and.push({ status: "published" });
+    else filter.status = "published";
+
     const total = await Products.countDocuments(filter);
-    const products = await Products.find(filter)
+    let products = await Products.find(filter)
       .sort({ product_id: -1 })
       .skip((pageNum - 1) * limitNum)
-      .limit(limitNum);
+      .limit(limitNum)
+      .populate({ path: "catagory_id", select: "name parent ancestors" });
+    if (parsed.colorNames?.length || parsed.colorHexes?.length) {
+      products = filterProductsByColorName(products, parsed.colorNames || [], parsed.colorHexes || []);
+      products = products.map((p) => {
+        const base = typeof p?.toObject === "function" ? p.toObject() : p;
+        return {
+          ...base,
+          matchedColor: pickMatchedColor(base, parsed.colorNames || [], parsed.colorHexes || []),
+        };
+      });
+    }
 
     return res.status(200).json({
       status: true,
@@ -122,6 +207,65 @@ export const searchProducts = async (req, res) => {
     });
   } catch (error) {
     console.error("searchProducts error:", error);
+    return res.status(500).json({ status: false, message: "Server error" });
+  }
+};
+
+export const getTopProducts = async (_req, res) => {
+  try {
+    const ordersAgg = await Orders.aggregate([
+      { $unwind: "$items" },
+      { $group: { _id: "$items.product_id", orderedQty: { $sum: "$items.quantity" }, orderCount: { $sum: 1 } } },
+    ]);
+    const reviewAgg = await Reviews.aggregate([
+      { $group: { _id: "$product_id", reviewCount: { $sum: 1 }, avgRating: { $avg: "$rating" } } },
+    ]);
+    const wishAgg = await Wishlist.aggregate([
+      { $group: { _id: "$product_id", wishCount: { $sum: 1 } } },
+    ]);
+
+    const metricsMap = new Map();
+    const upsert = (id, data) => {
+      const curr =
+        metricsMap.get(id) || { orderedQty: 0, orderCount: 0, reviewCount: 0, avgRating: 0, wishCount: 0 };
+      metricsMap.set(id, { ...curr, ...data });
+    };
+
+    ordersAgg.forEach((o) => upsert(o._id, { orderedQty: o.orderedQty, orderCount: o.orderCount }));
+    reviewAgg.forEach((r) => upsert(r._id, { reviewCount: r.reviewCount, avgRating: r.avgRating || 0 }));
+    wishAgg.forEach((w) => upsert(w._id, { wishCount: w.wishCount }));
+
+    const scored = [];
+    metricsMap.forEach((m, id) => {
+      const score = m.orderedQty * 3 + m.orderCount + m.reviewCount * 1.5 + m.wishCount + m.avgRating * 2;
+      scored.push({ product_id: id, score, metrics: m });
+    });
+    scored.sort((a, b) => b.score - a.score);
+    const topIds = scored.slice(0, 20).map((s) => s.product_id);
+
+    if (!topIds.length) {
+      return res.status(200).json({ status: true, products: [] });
+    }
+
+    const products = await Products.find({ product_id: { $in: topIds }, status: "published" }).lean();
+    const map = new Map(products.map((p) => [p.product_id, p]));
+    const result = scored
+      .filter((s) => map.has(s.product_id))
+      .map((s) => {
+        const prod = map.get(s.product_id);
+        return {
+          ...prod,
+          reviewCount: s.metrics?.reviewCount || 0,
+          avgRating: s.metrics?.avgRating || 0,
+          orderedQty: s.metrics?.orderedQty || 0,
+          orderCount: s.metrics?.orderCount || 0,
+          wishCount: s.metrics?.wishCount || 0,
+        };
+      });
+
+    return res.status(200).json({ status: true, products: result });
+  } catch (error) {
+    console.error("getTopProducts error:", error);
     return res.status(500).json({ status: false, message: "Server error" });
   }
 };
@@ -232,40 +376,136 @@ export const getProductReviews = async (req, res) => {
   }
 };
 
-// --- Minimal user/cart/address stubs to satisfy frontend ---
-export const getUserCart = async (_req, res) => {
-  return res.status(200).json([]);
+// --- Cart API ---
+export const getUserCart = async (req, res) => {
+  try {
+    const cartId = req.body?.cart_id;
+    if (!cartId) return res.status(200).json({ status: true, cart_id: "", items: [] });
+    const cart = await Cart.findOne({ cart_id: cartId }).lean();
+    return res.status(200).json({ status: true, cart_id: cartId, items: cart?.items || [] });
+  } catch (error) {
+    console.error("getUserCart error:", error);
+    return res.status(500).json({ status: false, message: "Server error" });
+  }
 };
 
-export const saveUserCart = async (_req, res) => {
-  return res
-    .status(200)
-    .json({ status: true, message: "Cart saved (stub, not persisted)" });
+export const saveUserCart = async (req, res) => {
+  try {
+    const { cart_id, items = [] } = req.body || {};
+    if (!cart_id) return res.status(400).json({ status: false, message: "cart_id required" });
+    const cart = await Cart.findOneAndUpdate(
+      { cart_id },
+      { $set: { items } },
+      { upsert: true, new: true },
+    );
+    return res.status(200).json({ status: true, cart_id: cart.cart_id, items: cart.items });
+  } catch (error) {
+    console.error("saveUserCart error:", error);
+    return res.status(500).json({ status: false, message: "Server error" });
+  }
 };
 
-export const addToCart = async (_req, res) => {
-  return res
-    .status(200)
-    .json({ status: true, message: "Added to cart (stub, not persisted)" });
+export const addToCart = async (req, res) => {
+  try {
+    const {
+      cart_id,
+      product_id,
+      color = "",
+      size = "",
+      qty = 1,
+      price,
+      mrp,
+      title,
+      image = "",
+    } = req.body || {};
+
+    if (!product_id || !price || !mrp || !title) {
+      return res.status(400).json({ status: false, message: "Missing product details." });
+    }
+    const cartId = cart_id || `cart_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const cart = (await Cart.findOne({ cart_id: cartId })) || new Cart({ cart_id: cartId, items: [] });
+    const idx = cart.items.findIndex(
+      (i) => i.product_id === Number(product_id) && i.color === color && i.size === size,
+    );
+    if (idx >= 0) {
+      cart.items[idx].qty += Number(qty) || 1;
+    } else {
+      cart.items.push({
+        product_id: Number(product_id),
+        color,
+        size,
+        qty: Number(qty) || 1,
+        price: Number(price),
+        mrp: Number(mrp),
+        title,
+        image,
+      });
+    }
+    await cart.save();
+    return res.status(200).json({ status: true, cart_id: cart.cart_id, items: cart.items });
+  } catch (error) {
+    console.error("addToCart error:", error);
+    return res.status(500).json({ status: false, message: "Server error" });
+  }
 };
 
-export const removeCartByProduct = async (_req, res) => {
-  return res.status(200).json({ status: true, message: "Removed (stub)" });
+export const removeCartByProduct = async (req, res) => {
+  try {
+    const { cart_id, color = "", size = "" } = req.query || {};
+    const productId = req.params.productId;
+    if (!cart_id || !productId) return res.status(400).json({ status: false, message: "Missing params" });
+    const cart = await Cart.findOne({ cart_id }).lean();
+    if (!cart) return res.status(200).json({ status: true, cart_id, items: [] });
+    const items = (cart.items || []).filter(
+      (i) => !(String(i.product_id) === String(productId) && i.color === color && i.size === size),
+    );
+    const updated = await Cart.findOneAndUpdate({ cart_id }, { $set: { items } }, { new: true });
+    return res.status(200).json({ status: true, cart_id, items: updated?.items || [] });
+  } catch (error) {
+    console.error("removeCartByProduct error:", error);
+    return res.status(500).json({ status: false, message: "Server error" });
+  }
 };
 
-export const updateCartItem = async (_req, res) => {
-  return res.status(200).json({ status: true, message: "Updated (stub)" });
+export const updateCartItem = async (req, res) => {
+  try {
+    const { cart_id, product_id, color = "", size = "", qty } = req.body || {};
+    if (!cart_id || !product_id) return res.status(400).json({ status: false, message: "Missing params" });
+    const cart = await Cart.findOne({ cart_id });
+    if (!cart) return res.status(200).json({ status: true, cart_id, items: [] });
+    const idx = cart.items.findIndex(
+      (i) => i.product_id === Number(product_id) && i.color === color && i.size === size,
+    );
+    if (idx >= 0) {
+      const q = Number(qty);
+      if (q <= 0) cart.items.splice(idx, 1);
+      else cart.items[idx].qty = q;
+      await cart.save();
+    }
+    return res.status(200).json({ status: true, cart_id, items: cart.items });
+  } catch (error) {
+    console.error("updateCartItem error:", error);
+    return res.status(500).json({ status: false, message: "Server error" });
+  }
 };
 
-export const clearCart = async (_req, res) => {
-  return res.status(200).json({ status: true, message: "Cleared (stub)" });
+export const clearCart = async (req, res) => {
+  try {
+    const { cart_id } = req.body || {};
+    if (!cart_id) return res.status(400).json({ status: false, message: "cart_id required" });
+    const cart = await Cart.findOneAndUpdate({ cart_id }, { $set: { items: [] } }, { new: true });
+    return res.status(200).json({ status: true, cart_id, items: cart?.items || [] });
+  } catch (error) {
+    console.error("clearCart error:", error);
+    return res.status(500).json({ status: false, message: "Server error" });
+  }
 };
 
 export const getUserProfile = async (req, res) => {
   try {
-    const email = req.body?.email || "user@example.com";
+    const email = req.user?.email || req.body?.email || "user@example.com";
     const profile =
-      (await Profile.findOne({ email }).lean()) || { email, name: "" };
+      (await Profile.findOne({ email }).lean()) || { email, name: "", gender: "" };
     return res.status(200).json({ status: true, profile });
   } catch (error) {
     console.error("getUserProfile error:", error);
@@ -277,11 +517,12 @@ export const getUserProfile = async (req, res) => {
 
 export const updateUserProfile = async (req, res) => {
   try {
-    const { email = "user@example.com", name = "" } = req.body || {};
+    const { name = "", gender = "" } = req.body || {};
+    const email = req.user?.email || req.body?.email || "user@example.com";
     const profile = await Profile.findOneAndUpdate(
       { email },
-      { email, name },
-      { new: true, upsert: true, setDefaultsOnInsert: true }
+      { email, name, gender },
+      { returnDocument: "after", upsert: true, setDefaultsOnInsert: true }
     ).lean();
     return res.status(200).json({ status: true, profile });
   } catch (error) {
@@ -294,7 +535,7 @@ export const updateUserProfile = async (req, res) => {
 
 // --- Wishlist helpers ---
 const requireEmail = (req, res) => {
-  const email = (req.body?.email || "").trim();
+  const email = (req.user?.email || req.body?.email || "").trim();
   if (!email) {
     res.status(401).json({ status: false, message: "Email required (auth)" });
     return null;
@@ -370,10 +611,21 @@ export const getUserOrders = async (req, res) => {
     const email = (req.body?.email || "").trim();
     const filter = email ? { user_email: email } : {};
     const orders = await Orders.find(filter)
-      .populate({ path: "items.product", select: "name title price selling_price product_image" })
+      .populate({ path: "items.product", select: "name title price selling_price product_image colorVariants" })
       .populate({ path: "address" })
       .sort({ createdAt: -1 })
       .lean();
+    if (isShiprocketTestMode && Array.isArray(orders)) {
+      const updates = [];
+      for (const order of orders) {
+        const nextStatus = getMockOrderStatus(order.createdAt, order.status);
+        if (nextStatus !== order.status) {
+          order.status = nextStatus;
+          updates.push(Orders.updateOne({ _id: order._id }, { status: nextStatus }));
+        }
+      }
+      if (updates.length) await Promise.all(updates);
+    }
     return res.status(200).json({ status: true, orders });
   } catch (error) {
     console.error("getUserOrders error:", error);
@@ -412,6 +664,8 @@ export const createOrder = async (req, res) => {
         quantity: qty,
         price,
         product: prod?._id,
+        color: it.color || "",
+        size: it.size || "",
       });
     }
     if (!amountPaise) amountPaise = 100;
@@ -503,6 +757,29 @@ export const confirmPayment = async (req, res) => {
       order.razorpay_payment_id = razorpay_payment_id;
       order.razorpay_signature = razorpay_signature;
       await order.save();
+
+      try {
+        const productIds = (order.items || [])
+          .map((i) => Number(i.product_id))
+          .filter(Boolean);
+        const products = await Products.find({ product_id: { $in: productIds } })
+          .select("product_id name title sku")
+          .lean();
+        const map = new Map(products.map((p) => [p.product_id, p]));
+        const items = (order.items || []).map((it) => ({
+          ...(it.toObject?.() || it),
+          title: map.get(Number(it.product_id))?.title || map.get(Number(it.product_id))?.name || "",
+          name: map.get(Number(it.product_id))?.name || "",
+          sku: map.get(Number(it.product_id))?.sku || "",
+        }));
+        const ship = await createShiprocketShipment({ order, items });
+        Object.assign(order, ship);
+        await order.save();
+      } catch (shipErr) {
+        order.shiprocket_error = shipErr?.message || "Shiprocket failed";
+        await order.save();
+        console.error("Shiprocket error:", shipErr);
+      }
     }
 
     return res.status(200).json({ status: true, message: "Payment verified", order_id: order?.order_id });
@@ -523,18 +800,24 @@ export const updateUserAddress = async (req, res) => {
       { address_id: addrId },
       {
         full_name: rest.FullName,
+        email: req.user?.email || rest.email,
         phone: rest.phone1,
         alt_phone: rest.phone2,
         address_line1: rest.address,
+        address_line2: rest.address_line2 || rest.district || "",
         city: rest.city,
+        district: rest.district,
         state: rest.state,
         postal_code: rest.pinCode,
         country: rest.country,
         FullName: rest.FullName,
         phone1: rest.phone1,
         phone2: rest.phone2,
+        email: req.user?.email || rest.email,
         pinCode: rest.pinCode,
         address: rest.address,
+        address_line2: rest.address_line2 || rest.district || "",
+        district: rest.district,
         addressType: rest.addressType,
       },
       { new: true }
@@ -548,11 +831,14 @@ export const updateUserAddress = async (req, res) => {
       FullName: updated.FullName,
       phone1: updated.phone1,
       phone2: updated.phone2,
+      email: updated.email || "",
       country: updated.country,
       state: updated.state,
       city: updated.city,
+      district: updated.district || updated.address_line2 || "",
       pinCode: updated.pinCode,
       address: updated.address,
+      address_line2: updated.address_line2 || "",
       addressType: updated.addressType,
     };
     return res.status(200).json({ status: true, address: shaped, data: shaped });
@@ -563,18 +849,23 @@ export const updateUserAddress = async (req, res) => {
 };
 
 export const getUserAddresses = async (_req, res) => {
-  const addresses = await Addresses.find({}).sort({ createdAt: -1 });
+  const email = (_req.user?.email || _req.body?.email || "").trim();
+  const filter = email ? { email } : {};
+  const addresses = await Addresses.find(filter).sort({ createdAt: -1 });
   const mapped = addresses.map((a) => ({
     id: a.address_id || a._id?.toString(),
     address_id: a.address_id,
     FullName: a.FullName || a.full_name || "",
     phone1: a.phone1 || a.phone || "",
     phone2: a.phone2 || a.alt_phone || "",
+    email: a.email || "",
     country: a.country || "",
     state: a.state || "",
     city: a.city || "",
+    district: a.district || a.address_line2 || "",
     pinCode: a.pinCode || a.postal_code || "",
     address: a.address || a.address_line1 || "",
+    address_line2: a.address_line2 || "",
     addressType: a.addressType || "",
   }));
   return res
@@ -585,6 +876,7 @@ export const getUserAddresses = async (_req, res) => {
 export const createNewAddress = async (req, res) => {
   try {
     const payload = req.body || {};
+    if (req.user?.email) payload.email = req.user.email;
     if (!payload.address_id) {
       payload.address_id = await getNextSequence("address_id");
     }
@@ -595,8 +887,9 @@ export const createNewAddress = async (req, res) => {
       phone: payload.phone1,
       alt_phone: payload.phone2,
       address_line1: payload.address || "",
-      address_line2: payload.address_line2 || "",
+      address_line2: payload.address_line2 || payload.district || "",
       city: payload.city,
+      district: payload.district,
       state: payload.state,
       postal_code: payload.pinCode,
       country: payload.country || "India",
@@ -605,6 +898,8 @@ export const createNewAddress = async (req, res) => {
       phone2: payload.phone2,
       pinCode: payload.pinCode,
       address: payload.address,
+      address_line2: payload.address_line2 || payload.district || "",
+      district: payload.district,
       addressType: payload.addressType,
     });
     const shaped = {
@@ -613,11 +908,14 @@ export const createNewAddress = async (req, res) => {
       FullName: addr.FullName,
       phone1: addr.phone1,
       phone2: addr.phone2,
+      email: addr.email || "",
       country: addr.country,
       state: addr.state,
       city: addr.city,
+      district: addr.district || addr.address_line2 || "",
       pinCode: addr.pinCode,
       address: addr.address,
+      address_line2: addr.address_line2 || "",
       addressType: addr.addressType,
     };
     return res
@@ -672,5 +970,104 @@ export const cancelOrder = async (req, res) => {
     return res
       .status(500)
       .json({ status: false, message: "Failed to cancel order" });
+  }
+};
+
+export const requestReturn = async (req, res) => {
+  try {
+    const { order_id, id } = req.body || {};
+    const idStr = order_id || id;
+    if (!idStr) {
+      return res.status(400).json({ status: false, message: "order_id required" });
+    }
+    const email = req.user?.email || "";
+    const query =
+      !Number.isNaN(Number(idStr)) && Number.isFinite(Number(idStr))
+        ? { order_id: Number(idStr) }
+        : { _id: idStr };
+    if (email) query.user_email = email;
+
+    const order = await Orders.findOne(query);
+    if (!order) {
+      return res.status(404).json({ status: false, message: "Order not found" });
+    }
+
+    const status = String(order.status || "").toLowerCase();
+    if (!status.includes("deliver")) {
+      return res.status(400).json({ status: false, message: "Order not delivered yet" });
+    }
+    if (status.includes("return")) {
+      return res.status(400).json({ status: false, message: "Return already requested" });
+    }
+
+    order.status = "return_requested";
+    await order.save();
+    return res.status(200).json({ status: true, message: "Return requested", order });
+  } catch (error) {
+    console.error("requestReturn error:", error);
+    return res.status(500).json({ status: false, message: "Failed to request return" });
+  }
+};
+
+export const lookupPincode = async (req, res) => {
+  try {
+    const pin = String(req.params.pin || "").trim();
+    if (!/^\d{6}$/.test(pin)) {
+      return res.status(400).json({ status: false, message: "Valid 6-digit pincode required" });
+    }
+
+    const resp = await fetch(`https://api.postalpincode.in/pincode/${pin}`);
+    if (!resp.ok) {
+      return res.status(502).json({ status: false, message: "Pincode service unavailable" });
+    }
+    const data = await resp.json();
+    const entry = Array.isArray(data) ? data[0] : null;
+    const offices = entry?.PostOffice || [];
+    if (!offices.length) {
+      return res.status(404).json({ status: false, message: "Pincode not found" });
+    }
+    const pick = offices[0];
+    return res.status(200).json({
+      status: true,
+      pin,
+      district: pick?.District || "",
+      state: pick?.State || "",
+      country: pick?.Country || "India",
+    });
+  } catch (error) {
+    console.error("lookupPincode error:", error);
+    return res.status(500).json({ status: false, message: "Pincode lookup failed" });
+  }
+};
+
+export const estimateDelivery = async (req, res) => {
+  try {
+    const pin = String(req.query.pin || req.body?.pin || "").trim();
+    if (!/^\d{6}$/.test(pin)) {
+      return res.status(400).json({ status: false, message: "Valid 6-digit pincode required" });
+    }
+    const weight = Number(req.query.weight || req.body?.weight || 0.5);
+    const total = Number(req.query.total || req.body?.total || 0);
+    const estimate = await getDeliveryEstimate({ deliveryPincode: pin, weight, total });
+    if (!estimate?.courier) {
+      return res.status(404).json({ status: false, message: "No courier available" });
+    }
+    const etdDays = Number(estimate.courier.etd || 0);
+    const eta = new Date();
+    eta.setDate(eta.getDate() + (Number.isFinite(etdDays) ? etdDays : 0));
+    const dd = eta.getDate();
+    const mm = eta.getMonth() + 1;
+    const yyyy = eta.getFullYear();
+    return res.status(200).json({
+      status: true,
+      pin,
+      courier: estimate.courier,
+      etd_days: etdDays,
+      eta: `${dd}-${mm}-${yyyy}`,
+      test_mode: isShiprocketTestMode,
+    });
+  } catch (error) {
+    console.error("estimateDelivery error:", error);
+    return res.status(500).json({ status: false, message: "Failed to estimate delivery" });
   }
 };

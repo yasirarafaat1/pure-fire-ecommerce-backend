@@ -36,10 +36,10 @@ export async function sendSmtpMail({
   return new Promise((resolve, reject) => {
     const socketFactory = secure ? tls : net;
     const socket = socketFactory.connect(
-      { host, port, servername: host },
+      { host, port, servername: host, timeout: 10000 },
       async () => {
         try {
-          socket.setTimeout(15000, () =>
+          socket.setTimeout(10000, () =>
             socket.destroy(new Error("SMTP timeout"))
           );
 
@@ -53,10 +53,10 @@ export async function sendSmtpMail({
             socket.removeAllListeners("data");
             socket.removeAllListeners("error");
             const tlsSocket = tls.connect(
-              { socket, servername: host },
+              { socket, servername: host, timeout: 10000 },
               async () => {
                 try {
-                  tlsSocket.setTimeout(15000, () =>
+                  tlsSocket.setTimeout(10000, () =>
                     tlsSocket.destroy(new Error("SMTP TLS timeout"))
                   );
                   await readReply(tlsSocket);
@@ -69,6 +69,9 @@ export async function sendSmtpMail({
               }
             );
             tlsSocket.once("error", reject);
+            tlsSocket.once("timeout", () =>
+              tlsSocket.destroy(new Error("SMTP TLS timeout"))
+            );
             return;
           }
 
@@ -80,6 +83,8 @@ export async function sendSmtpMail({
         }
       }
     );
+    socket.once("error", reject);
+    socket.once("timeout", () => socket.destroy(new Error("SMTP timeout")));
 
     const authAndSend = async (sock) => {
       await sendCommand(sock, "AUTH LOGIN");
