@@ -22,6 +22,11 @@ import {
   parseSearchQuery,
   buildTokenRegex,
 } from "../utils/search.js";
+import { getCache, setCache } from "../utils/cache.js";
+
+const CACHE_TTL_SHORT = Number(process.env.CACHE_TTL_SHORT || 15000);
+const CACHE_TTL_MED = Number(process.env.CACHE_TTL_MED || 30000);
+const CACHE_TTL_LONG = Number(process.env.CACHE_TTL_LONG || 120000);
 
 const parsePageLimit = (req) => {
   const page = Math.max(parseInt(req.query.page || "1", 10), 1);
@@ -32,6 +37,10 @@ const parsePageLimit = (req) => {
 export const showProducts = async (req, res) => {
   try {
     const { page, limit } = parsePageLimit(req);
+    const cacheKey = `showProducts:${page}:${limit}`;
+    const cached = getCache(cacheKey);
+    if (cached) return res.status(200).json(cached);
+
     const total = await Products.countDocuments({});
     const products = await Products.find({})
       .sort({ product_id: -1 })
@@ -53,11 +62,13 @@ export const showProducts = async (req, res) => {
       return { ...p, reviewCount: stats.reviewCount || 0, avgRating: stats.avgRating || 0 };
     });
 
-    return res.status(200).json({
+    const payload = {
       status: true,
       products: shaped,
       pagination: { page, limit, total },
-    });
+    };
+    setCache(cacheKey, payload, CACHE_TTL_SHORT);
+    return res.status(200).json(payload);
   } catch (error) {
     console.error("showProducts error:", error);
     return res.status(500).json({ status: false, message: "Server error" });
@@ -97,9 +108,15 @@ export const getProductByCategory = async (req, res) => {
   try {
     const { page, limit } = parsePageLimit(req);
     const categoryName = req.params.category;
+    const cacheKey = `productByCategory:${categoryName}:${page}:${limit}`;
+    const cached = getCache(cacheKey);
+    if (cached) return res.status(200).json(cached);
+
     const category = await Catagories.findOne({ name: categoryName });
     if (!category) {
-      return res.status(200).json({ status: true, products: [], pagination: { page, limit, total: 0 } });
+      const payload = { status: true, products: [], pagination: { page, limit, total: 0 } };
+      setCache(cacheKey, payload, CACHE_TTL_SHORT);
+      return res.status(200).json(payload);
     }
 
     const filter = { catagory_id: category._id };
@@ -109,11 +126,13 @@ export const getProductByCategory = async (req, res) => {
       .skip((page - 1) * limit)
       .limit(limit);
 
-    return res.status(200).json({
+    const payload = {
       status: true,
       products,
       pagination: { page, limit, total },
-    });
+    };
+    setCache(cacheKey, payload, CACHE_TTL_SHORT);
+    return res.status(200).json(payload);
   } catch (error) {
     console.error("getProductByCategory error:", error);
     return res.status(500).json({ status: false, message: "Server error" });
@@ -214,6 +233,10 @@ export const searchProducts = async (req, res) => {
 
 export const getTopProducts = async (_req, res) => {
   try {
+    const cacheKey = "topProducts";
+    const cached = getCache(cacheKey);
+    if (cached) return res.status(200).json(cached);
+
     const ordersAgg = await Orders.aggregate([
       { $unwind: "$items" },
       { $group: { _id: "$items.product_id", orderedQty: { $sum: "$items.quantity" }, orderCount: { $sum: 1 } } },
@@ -264,7 +287,9 @@ export const getTopProducts = async (_req, res) => {
         };
       });
 
-    return res.status(200).json({ status: true, products: result });
+    const payload = { status: true, products: result };
+    setCache(cacheKey, payload, CACHE_TTL_MED);
+    return res.status(200).json(payload);
   } catch (error) {
     console.error("getTopProducts error:", error);
     return res.status(500).json({ status: false, message: "Server error" });
@@ -273,8 +298,14 @@ export const getTopProducts = async (_req, res) => {
 
 export const getCategories = async (_req, res) => {
   try {
+    const cacheKey = "categories";
+    const cached = getCache(cacheKey);
+    if (cached) return res.status(200).json(cached);
+
     const categories = await Catagories.find({}).sort({ name: 1 });
-    return res.status(200).json({ status: true, categories });
+    const payload = { status: true, categories };
+    setCache(cacheKey, payload, CACHE_TTL_LONG);
+    return res.status(200).json(payload);
   } catch (error) {
     console.error("getCategories (user) error:", error);
     return res.status(500).json({ status: false, message: "Server error" });
