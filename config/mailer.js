@@ -17,8 +17,19 @@ const transporter = isReady
       port,
       secure: port === 465,
       auth: { user, pass },
+      requireTLS: port === 587,
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 10000,
     })
   : null;
+
+if (transporter) {
+  transporter
+    .verify()
+    .then(() => console.log("✅ SMTP ready"))
+    .catch((err) => console.error("❌ SMTP verify failed:", err?.message || err));
+}
 
 export const sendOtpEmail = async (email, otp) => {
   if (!transporter) {
