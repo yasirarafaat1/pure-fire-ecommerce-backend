@@ -8,6 +8,7 @@ import { uploadToCloudinary } from "../config/cloudinary.js";
 import Profile from "../model/profile.model.js";
 import Wishlist from "../model/wishlist.model.js";
 import Orders from "../model/orders.model.js";
+import PendingOrders from "../model/pendingOrder.model.js";
 import {
   createShiprocketShipment,
   getDeliveryEstimate,
@@ -694,31 +695,13 @@ export const createOrder = async (req, res) => {
     }
     const order = await rpRes.json();
 
-    const addressDoc = address_id
-      ? await Addresses.findOne({ address_id: Number(address_id) })
-      : null;
-
-    const localOrderId = await getNextSequence("order_id");
-    await Orders.create({
-      order_id: localOrderId,
-      status: "pending",
-      payment_status: "created",
-      payment_method: "Razorpay",
-      amount: payload.amount,
-      currency: payload.currency,
+    await PendingOrders.create({
       razorpay_order_id: order.id,
       items: orderItems,
-      address: addressDoc?._id,
-      user_email: email || "",
-      FullName: addressDoc?.FullName || addressDoc?.full_name || "",
-      phone1: addressDoc?.phone1 || addressDoc?.phone || "",
-      phone2: addressDoc?.phone2 || addressDoc?.alt_phone || "",
-      address_line1: addressDoc?.address_line1 || addressDoc?.address || "",
-      city: addressDoc?.city || "",
-      state: addressDoc?.state || "",
-      country: addressDoc?.country || "",
-      pinCode: addressDoc?.pinCode || addressDoc?.postal_code || "",
-      addressType: addressDoc?.addressType || "",
+      address_id: address_id ? Number(address_id) : null,
+      email: email || "",
+      amount: payload.amount,
+      currency: payload.currency,
     });
 
     return res.status(200).json({
@@ -727,7 +710,6 @@ export const createOrder = async (req, res) => {
       key: keyId,
       amount: payload.amount,
       currency: payload.currency,
-      local_order_id: localOrderId,
     });
   } catch (error) {
     console.error("createOrder error:", error);
@@ -750,36 +732,69 @@ export const confirmPayment = async (req, res) => {
       return res.status(400).json({ status: false, message: "Signature mismatch" });
     }
 
-    const order = await Orders.findOne({ razorpay_order_id });
-    if (order) {
+    let order = await Orders.findOne({ razorpay_order_id });
+    if (!order) {
+      const pending = await PendingOrders.findOne({ razorpay_order_id }).lean();
+      if (!pending) {
+        return res.status(404).json({ status: false, message: "Pending order not found" });
+      }
+      const addressDoc = pending.address_id
+        ? await Addresses.findOne({ address_id: Number(pending.address_id) })
+        : null;
+      const localOrderId = await getNextSequence("order_id");
+      order = await Orders.create({
+        order_id: localOrderId,
+        status: "confirmed",
+        payment_status: "paid",
+        payment_method: "Razorpay",
+        amount: pending.amount,
+        currency: pending.currency,
+        razorpay_order_id,
+        razorpay_payment_id,
+        razorpay_signature,
+        items: pending.items || [],
+        address: addressDoc?._id,
+        user_email: pending.email || "",
+        FullName: addressDoc?.FullName || addressDoc?.full_name || "",
+        phone1: addressDoc?.phone1 || addressDoc?.phone || "",
+        phone2: addressDoc?.phone2 || addressDoc?.alt_phone || "",
+        address_line1: addressDoc?.address_line1 || addressDoc?.address || "",
+        city: addressDoc?.city || "",
+        state: addressDoc?.state || "",
+        country: addressDoc?.country || "",
+        pinCode: addressDoc?.pinCode || addressDoc?.postal_code || "",
+        addressType: addressDoc?.addressType || "",
+      });
+      await PendingOrders.deleteOne({ _id: pending._id });
+    } else {
       order.payment_status = "paid";
       order.status = "confirmed";
       order.razorpay_payment_id = razorpay_payment_id;
       order.razorpay_signature = razorpay_signature;
       await order.save();
+    }
 
-      try {
-        const productIds = (order.items || [])
-          .map((i) => Number(i.product_id))
-          .filter(Boolean);
-        const products = await Products.find({ product_id: { $in: productIds } })
-          .select("product_id name title sku")
-          .lean();
-        const map = new Map(products.map((p) => [p.product_id, p]));
-        const items = (order.items || []).map((it) => ({
-          ...(it.toObject?.() || it),
-          title: map.get(Number(it.product_id))?.title || map.get(Number(it.product_id))?.name || "",
-          name: map.get(Number(it.product_id))?.name || "",
-          sku: map.get(Number(it.product_id))?.sku || "",
-        }));
-        const ship = await createShiprocketShipment({ order, items });
-        Object.assign(order, ship);
-        await order.save();
-      } catch (shipErr) {
-        order.shiprocket_error = shipErr?.message || "Shiprocket failed";
-        await order.save();
-        console.error("Shiprocket error:", shipErr);
-      }
+    try {
+      const productIds = (order.items || [])
+        .map((i) => Number(i.product_id))
+        .filter(Boolean);
+      const products = await Products.find({ product_id: { $in: productIds } })
+        .select("product_id name title sku")
+        .lean();
+      const map = new Map(products.map((p) => [p.product_id, p]));
+      const items = (order.items || []).map((it) => ({
+        ...(it.toObject?.() || it),
+        title: map.get(Number(it.product_id))?.title || map.get(Number(it.product_id))?.name || "",
+        name: map.get(Number(it.product_id))?.name || "",
+        sku: map.get(Number(it.product_id))?.sku || "",
+      }));
+      const ship = await createShiprocketShipment({ order, items });
+      Object.assign(order, ship);
+      await order.save();
+    } catch (shipErr) {
+      order.shiprocket_error = shipErr?.message || "Shiprocket failed";
+      await order.save();
+      console.error("Shiprocket error:", shipErr);
     }
 
     return res.status(200).json({ status: true, message: "Payment verified", order_id: order?.order_id });
