@@ -174,3 +174,14 @@ export const adminResetPassword = async (req, res) => {
     return res.status(500).json({ status: false, message: "Server error" });
   }
 };
+
+export const adminLogout = async (req, res) => {
+  try {
+    // Logout is handled on frontend by clearing token
+    // This endpoint can be used for server-side cleanup if needed
+    return res.status(200).json({ status: true, message: "Logged out successfully" });
+  } catch (error) {
+    console.error("adminLogout error:", error);
+    return res.status(500).json({ status: false, message: "Server error" });
+  }
+};
