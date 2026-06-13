@@ -4,6 +4,8 @@ import { connectDB } from "./config/db.js";
 import adminRouter from "./router/admin.router.js";
 import userRouter from "./router/user.router.js";
 import authRouter from "./router/auth.router.js";
+import protectedAdminRouter from "./router/admin/index.js";
+import { validateAdminSessionConfig } from "./utils/adminSession.js";
 
 const app = express();
 const port = Number(process.env.PORT) || 5000;
@@ -47,6 +49,7 @@ app.get("/health", (req, res) => {
 
 const startServer = async () => {
   try {
+    validateAdminSessionConfig();
     await connectDB();
   } catch (error) {
     console.error("Failed to connect to MongoDB. Exiting.");
@@ -54,11 +57,22 @@ const startServer = async () => {
   }
 
   app.use("/admin", adminRouter);
+  app.use("/api/admin", protectedAdminRouter);
   app.use("/user", userRouter);
   app.use("/api/auth", authRouter);
   console.log("Admin routes loaded at /admin");
+  console.log("Protected admin routes loaded at /api/admin");
   console.log("User routes loaded at /user");
   console.log("Auth routes loaded at /api/auth");
+
+  app.use((error, _req, res, _next) => {
+    console.error("Unhandled request error:", error);
+    const status = error.name === "MulterError" ? 400 : error.statusCode || 500;
+    res.status(status).json({
+      status: false,
+      message: status === 500 ? "Server error" : error.message,
+    });
+  });
 
   app.listen(port, () => {
     console.log(`Server running on http://localhost:${port}`);

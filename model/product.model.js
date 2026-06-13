@@ -20,6 +20,7 @@ const ProductSchema = new mongoose.Schema(
   {
     product_id: { type: Number, unique: true, index: true },
     title: String,
+    slug: { type: String, trim: true, index: true },
     sku: { type: String, trim: true },
     name: { type: String, required: true },
     price: {
@@ -48,6 +49,10 @@ const ProductSchema = new mongoose.Schema(
         return this.status === "published";
       },
     },
+    lowStockThreshold: { type: Number, default: 5, min: 0 },
+    shortDescription: { type: String, default: "" },
+    metaTitle: { type: String, default: "" },
+    metaDescription: { type: String, default: "" },
     catagory_id: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Catagories",

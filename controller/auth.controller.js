@@ -1,5 +1,4 @@
 import crypto from "crypto";
-import Admin from "../model/admin.model.js";
 import { loadEnv } from "../config/env.js";
 import Profile from "../model/profile.model.js";
 import OtpToken from "../model/otp.model.js";
@@ -9,35 +8,9 @@ import { v4 as uuidv4 } from "uuid";
 
 loadEnv();
 
-const ADMIN_SECRET = process.env.ADMIN_SECRET || "purefire-admin-secret";
 const OTP_SECRET = process.env.OTP_SECRET || "purefire-otp-secret";
 const OTP_TTL_MIN = Number(process.env.OTP_TTL_MIN || 10);
 const SESSION_TTL_DAYS = Number(process.env.SESSION_TTL_DAYS || 15);
-const DEFAULT_ADMIN = {
-  username: process.env.ADMIN_USER || "admin",
-  password: process.env.ADMIN_PASS || "admin123",
-};
-
-const hashPassword = (password, salt) => {
-  return crypto.pbkdf2Sync(password, salt, 10000, 64, "sha512").toString("hex");
-};
-
-const ensureDefaultAdmin = async () => {
-  const existing = await Admin.findOne({ username: DEFAULT_ADMIN.username });
-  if (!existing) {
-    const salt = crypto.randomBytes(16).toString("hex");
-    const passwordHash = hashPassword(DEFAULT_ADMIN.password, salt);
-    await Admin.create({ username: DEFAULT_ADMIN.username, passwordHash, salt });
-    console.log("Seeded default admin user");
-  }
-};
-
-const signToken = (username) => {
-  const payload = `${username}:${Date.now()}`;
-  const sig = crypto.createHmac("sha256", ADMIN_SECRET).update(payload).digest("hex");
-  return `${Buffer.from(payload).toString("base64")}.${sig}`;
-};
-
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const hashOtp = (email, otp) => {
@@ -128,60 +101,5 @@ export const verifyUserOtp = async (req, res) => {
   } catch (error) {
     console.error("verifyUserOtp error:", error);
     return res.status(500).json({ status: false, message: "OTP verification failed" });
-  }
-};
-
-export const adminLogin = async (req, res) => {
-  const { username, password } = req.body || {};
-  if (!username || !password) {
-    return res.status(400).json({ status: false, message: "Username and password required" });
-  }
-  try {
-    await ensureDefaultAdmin();
-    const admin = await Admin.findOne({ username });
-    if (!admin) return res.status(401).json({ status: false, message: "Invalid credentials" });
-    const hash = hashPassword(password, admin.salt);
-    if (hash !== admin.passwordHash) {
-      return res.status(401).json({ status: false, message: "Invalid credentials" });
-    }
-    const token = signToken(username);
-    return res.status(200).json({ status: true, token, username });
-  } catch (error) {
-    console.error("adminLogin error:", error);
-    return res.status(500).json({ status: false, message: "Server error" });
-  }
-};
-
-export const adminResetPassword = async (req, res) => {
-  const { username, currentPassword, newPassword } = req.body || {};
-  if (!username || !currentPassword || !newPassword) {
-    return res.status(400).json({ status: false, message: "username, currentPassword, newPassword required" });
-  }
-  try {
-    const admin = await Admin.findOne({ username });
-    if (!admin) return res.status(404).json({ status: false, message: "Admin not found" });
-    const currentHash = hashPassword(currentPassword, admin.salt);
-    if (currentHash !== admin.passwordHash) {
-      return res.status(401).json({ status: false, message: "Current password incorrect" });
-    }
-    const salt = crypto.randomBytes(16).toString("hex");
-    admin.salt = salt;
-    admin.passwordHash = hashPassword(newPassword, salt);
-    await admin.save();
-    return res.status(200).json({ status: true, message: "Password updated" });
-  } catch (error) {
-    console.error("adminResetPassword error:", error);
-    return res.status(500).json({ status: false, message: "Server error" });
-  }
-};
-
-export const adminLogout = async (req, res) => {
-  try {
-    // Logout is handled on frontend by clearing token
-    // This endpoint can be used for server-side cleanup if needed
-    return res.status(200).json({ status: true, message: "Logged out successfully" });
-  } catch (error) {
-    console.error("adminLogout error:", error);
-    return res.status(500).json({ status: false, message: "Server error" });
   }
 };

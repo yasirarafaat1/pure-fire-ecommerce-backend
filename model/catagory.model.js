@@ -15,6 +15,18 @@ const CatagorySchema = new mongoose.Schema(
         name: { type: String, required: true },
       },
     ],
+    slug: { type: String, trim: true, index: true },
+    description: { type: String, default: "" },
+    imageUrl: { type: String, default: "" },
+    status: {
+      type: String,
+      enum: ["ACTIVE", "INACTIVE"],
+      default: "ACTIVE",
+      index: true,
+    },
+    sortOrder: { type: Number, default: 0 },
+    metaTitle: { type: String, default: "" },
+    metaDescription: { type: String, default: "" },
   },
   { timestamps: true }
 );

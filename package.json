@@ -5,7 +5,9 @@
     "type": "module",
     "scripts": {
         "start": "node app.js",
-        "dev": "nodemon app.js"
+        "dev": "nodemon app.js",
+        "admin:create": "node scripts/create-admin.js",
+        "admin:diagnose": "node scripts/diagnose-admin-login.js"
     },
     "dependencies": {
         "color-name-list": "^14.33.0",
