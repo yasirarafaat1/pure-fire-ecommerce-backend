@@ -16,7 +16,6 @@
         "mongoose": "^9.2.4",
         "multer": "^2.0.2",
         "node-fetch": "^3.3.2",
-        "nodemailer": "^6.10.1",
         "sequelize": "^6.37.7",
         "uuid": "^13.0.0"
     },

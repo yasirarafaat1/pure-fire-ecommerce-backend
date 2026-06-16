@@ -1,5 +1,7 @@
+import mongoose from "mongoose";
 import Reviews from "../../model/review.model.js";
 import Products from "../../model/product.model.js";
+import { deleteFromCloudinary, extractPublicId } from "../../config/cloudinary.js";
 import {
   escapeRegex,
   paginationPayload,
@@ -53,13 +55,28 @@ export const moderateReview = async (req, res) => {
 };
 
 export const deleteReview = async (req, res) => {
-  const review = await Reviews.findByIdAndDelete(req.params.id);
+  if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+    return res.status(400).json({ status: false, message: "Invalid review id" });
+  }
+  const review = await Reviews.findByIdAndDelete(req.params.id).lean();
   if (!review) return res.status(404).json({ status: false, message: "Review not found" });
+  const publicId = review.review_image ? extractPublicId(review.review_image) : null;
+  if (publicId) {
+    deleteFromCloudinary(publicId).catch((error) => {
+      console.error("Review image cleanup failed:", error.message);
+    });
+  }
   await writeAdminAudit(req, {
     action: "REVIEW_DELETED",
     entityType: "REVIEW",
     entityId: review._id,
-    metadata: { productId: review.product_id },
+    metadata: {
+      productId: review.product_id,
+      rating: review.rating,
+      user: review.user,
+      title: review.review_title,
+      imageDeleted: Boolean(publicId),
+    },
   });
-  return res.json({ status: true, message: "Review deleted" });
+  return res.json({ status: true, message: "Review deleted", data: { id: review._id } });
 };
