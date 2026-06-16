@@ -1,80 +1,105 @@
 import crypto from "crypto";
-import { sendSmtpMail } from "../utils/smtp.js";
 import { loadEnv } from "../config/env.js";
+import Profile from "../model/profile.model.js";
+import OtpToken from "../model/otp.model.js";
+import UserSession from "../model/session.model.js";
+import { sendOtpEmail } from "../config/mailer.js";
+import { v4 as uuidv4 } from "uuid";
 
 loadEnv();
 
-const otpStore = new Map(); // email -> { code, expires }
-const OTP_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const OTP_SECRET = process.env.OTP_SECRET || "purefire-otp-secret";
+const OTP_TTL_MIN = Number(process.env.OTP_TTL_MIN || 10);
+const SESSION_TTL_DAYS = Number(process.env.SESSION_TTL_DAYS || 15);
+const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-const emailFrom = process.env.SMTP_EMAIL;
-const emailPass = process.env.SMTP_PASSWORD;
-const smtpHost = process.env.SMTP_HOST || "smtp.gmail.com";
-const smtpPort = Number(process.env.SMTP_PORT || 587);
-const smtpSecure =
-  process.env.SMTP_SECURE === "true" || smtpPort === 465 ? true : false;
+const hashOtp = (email, otp) => {
+  return crypto
+    .createHmac("sha256", OTP_SECRET)
+    .update(`${email}:${otp}`)
+    .digest("hex");
+};
 
-export const sendOtp = async (req, res) => {
+export const sendUserOtp = async (req, res) => {
   try {
-    const { email } = req.body || {};
-    if (!email) return res.status(400).json({ message: "Email required" });
-
-    if (!emailFrom || !emailPass) {
-      return res
-        .status(500)
-        .json({ message: "SMTP not configured on server" });
+    const email = (req.body?.email || "").trim().toLowerCase();
+    if (!email || !emailRegex.test(email)) {
+      return res.status(400).json({ status: false, message: "Valid email required" });
     }
 
-    const code = crypto.randomInt(100000, 999999).toString();
-    const expires = Date.now() + OTP_TTL_MS;
-    otpStore.set(email, { code, expires });
+    const otp = Math.floor(1000 + Math.random() * 9000).toString();
+    const expiresAt = new Date(Date.now() + OTP_TTL_MIN * 60 * 1000);
+    const otpHash = hashOtp(email, otp);
 
-    const subject = "Your login OTP";
-    const text = `Your OTP is ${code}. It expires in 10 minutes.`;
+    await OtpToken.findOneAndUpdate(
+      { email },
+      { email, otpHash, expiresAt, attempts: 0 },
+      { upsert: true, returnDocument: "after" }
+    );
 
-    const doSend = process.env.SMTP_DRY_RUN !== "true";
-
-    if (doSend) {
-      await sendSmtpMail({
-        host: smtpHost,
-        port: smtpPort,
-        secure: smtpSecure,
-        user: emailFrom,
-        pass: emailPass,
-        from: emailFrom,
-        to: email,
-        subject,
-        text,
-      });
-    } else {
-      console.log(`[SMTP_DRY_RUN] OTP for ${email}: ${code}`);
-    }
-
-    return res.status(200).json({ status: true, message: "OTP sent" });
+    await sendOtpEmail(email, otp);
+    return res.status(200).json({
+      status: true,
+      message: "OTP sent",
+      expiresIn: OTP_TTL_MIN * 60,
+    });
   } catch (error) {
-    console.error("sendOtp error:", error);
-    return res
-      .status(500)
-      .json({ status: false, message: error.message || "Failed to send OTP" });
+    console.error("sendUserOtp error:", error);
+    return res.status(500).json({ status: false, message: error.message || "Failed to send OTP" });
   }
 };
 
-export const verifyOtp = (req, res) => {
-  const { email, otp } = req.body || {};
-  if (!email || !otp) {
-    return res.status(400).json({ message: "Email and OTP required" });
-  }
+export const verifyUserOtp = async (req, res) => {
+  try {
+    const email = (req.body?.email || "").trim().toLowerCase();
+    const otp = (req.body?.otp || "").trim();
+    if (!email || !emailRegex.test(email)) {
+      return res.status(400).json({ status: false, message: "Valid email required" });
+    }
+    if (!otp || otp.length !== 4) {
+      return res.status(400).json({ status: false, message: "4-digit OTP required" });
+    }
 
-  const entry = otpStore.get(email);
-  if (!entry) return res.status(400).json({ message: "OTP expired or not found" });
-  if (Date.now() > entry.expires) {
-    otpStore.delete(email);
-    return res.status(400).json({ message: "OTP expired" });
-  }
-  if (entry.code !== otp) {
-    return res.status(400).json({ message: "Invalid OTP" });
-  }
+    const record = await OtpToken.findOne({ email });
+    if (!record) {
+      return res.status(400).json({ status: false, message: "OTP expired. Request a new one." });
+    }
+    if (record.expiresAt.getTime() < Date.now()) {
+      await OtpToken.deleteOne({ email });
+      return res.status(400).json({ status: false, message: "OTP expired. Request a new one." });
+    }
+    if (record.attempts >= 5) {
+      await OtpToken.deleteOne({ email });
+      return res.status(400).json({ status: false, message: "Too many attempts. Request a new OTP." });
+    }
 
-  otpStore.delete(email);
-  return res.status(200).json({ status: true, message: "OTP verified" });
+    const providedHash = hashOtp(email, otp);
+    if (providedHash !== record.otpHash) {
+      await OtpToken.updateOne({ email }, { $inc: { attempts: 1 } });
+      return res.status(400).json({ status: false, message: "Invalid OTP" });
+    }
+
+    await OtpToken.deleteOne({ email });
+
+    let profile = await Profile.findOne({ email });
+    const isNew = !profile;
+    if (!profile) {
+      profile = await Profile.create({ email, name: "" });
+    }
+
+    const token = uuidv4();
+    const expiresAt = new Date(Date.now() + SESSION_TTL_DAYS * 24 * 60 * 60 * 1000);
+    await UserSession.create({ email, token, expiresAt });
+
+    return res.status(200).json({
+      status: true,
+      token,
+      email,
+      profile,
+      isNew,
+    });
+  } catch (error) {
+    console.error("verifyUserOtp error:", error);
+    return res.status(500).json({ status: false, message: "OTP verification failed" });
+  }
 };

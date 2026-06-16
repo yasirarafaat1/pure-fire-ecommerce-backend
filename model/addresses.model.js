@@ -10,6 +10,7 @@ const AddressSchema = new mongoose.Schema(
     address_line1: String,
     address_line2: String,
     city: String,
+    district: String,
     state: String,
     postal_code: String,
     country: { type: String, default: "India" },

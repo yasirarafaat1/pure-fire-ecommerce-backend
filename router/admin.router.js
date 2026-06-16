@@ -1,23 +1,23 @@
 import { Router } from "express";
-import { addCatagory, uploadProduct, getProducts, updateProduct, getOrders, updateOrderStatus, login, deleteProduct, getCategories } from "../controller/admin.controller.js";
-import { upload } from '../middleware/multer.middleware.js';
+import {
+  getBannersPublic,
+  getCategoryTree,
+  getProducts,
+  searchProducts,
+  topProducts,
+} from "../controller/admin.controller.js";
+import { getPublicSettings } from "../controllers/admin/settings.controller.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
 
 const router = Router();
 
+// Storefront compatibility reads. Management APIs live under /api/admin.
+router.get("/get-categories", asyncHandler(getCategoryTree));
+router.get("/categories/tree", asyncHandler(getCategoryTree));
+router.get("/get-products", asyncHandler(getProducts));
+router.get("/search-products", asyncHandler(searchProducts));
+router.get("/top-products", asyncHandler(topProducts));
+router.get("/banners/public", asyncHandler(getBannersPublic));
+router.get("/settings/public", asyncHandler(getPublicSettings));
 
-
-router.post('/add-catagory', addCatagory);
-router.post('/login', login)
-
-
-router.post('/upload-product', upload.array('images', 5), uploadProduct);
-router.get('/get-products', getProducts);
-router.get('/get-categories', getCategories);
-router.patch('/update-product/:product_id', upload.array('images', 5), updateProduct);
-router.get('/get-orders', getOrders);
-router.patch('/update-order-status', updateOrderStatus);
-router.delete('/delete-product', deleteProduct)
-
-
-export { router };
 export default router;

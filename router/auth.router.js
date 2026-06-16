@@ -1,10 +1,13 @@
 import { Router } from "express";
-import { sendOtp, verifyOtp } from "../controller/auth.controller.js";
+import {
+  sendUserOtp,
+  verifyUserOtp,
+} from "../controller/auth.controller.js";
 
 const router = Router();
 
-router.post("/log", sendOtp);
-router.post("/varify-email", verifyOtp);
+router.post("/user/send-otp", sendUserOtp);
+router.post("/user/verify-otp", verifyUserOtp);
 
 export { router };
 export default router;
