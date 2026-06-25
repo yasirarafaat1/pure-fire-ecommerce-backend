@@ -29,7 +29,12 @@ export const updateSettings = async (req, res) => {
     supportEmail: String(req.body?.supportEmail || "").trim().toLowerCase(),
     supportPhone: String(req.body?.supportPhone || "").trim(),
     address: String(req.body?.address || "").trim(),
-    gstNumber: String(req.body?.gstNumber || "").trim(),
+    gstin: String(req.body?.gstin || req.body?.gstNumber || "").trim(),
+    gstNumber: String(req.body?.gstNumber || req.body?.gstin || "").trim(),
+    gstPercentage:
+      req.body?.gstPercentage === "" || req.body?.gstPercentage === null || req.body?.gstPercentage === undefined
+        ? null
+        : Number(req.body.gstPercentage),
     socialLinks: req.body?.socialLinks || {},
     seo: req.body?.seo || {},
     shipping: req.body?.shipping || {},
@@ -39,6 +44,9 @@ export const updateSettings = async (req, res) => {
   }
   if (payload.supportEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.supportEmail)) {
     return res.status(400).json({ status: false, message: "Support email is invalid" });
+  }
+  if (payload.gstPercentage !== null && (!Number.isFinite(payload.gstPercentage) || payload.gstPercentage < 0)) {
+    return res.status(400).json({ status: false, message: "GST percentage must be numeric and >= 0" });
   }
   const settings = await StoreSetting.findOneAndUpdate(
     { key: "default" },

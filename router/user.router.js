@@ -24,6 +24,7 @@ import {
   getUserProfile,
   updateUserProfile,
   getUserOrders,
+  downloadOrderInvoice,
   createOrder,
   confirmPayment,
   cancelOrder,
@@ -62,6 +63,7 @@ router.patch("/update-user-address", requireUserAuth, updateUserAddress);
 router.post("/get-user-profile", requireUserAuth, getUserProfile);
 router.post("/update-user-profile", requireUserAuth, updateUserProfile);
 router.post("/get-orders", getUserOrders);
+router.get("/orders/:orderId/invoice/download", requireUserAuth, downloadOrderInvoice);
 router.post("/create-order", createOrder);
 router.post("/payment-success", confirmPayment);
 router.post("/cancel-order", cancelOrder);

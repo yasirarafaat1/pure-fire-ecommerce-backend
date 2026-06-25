@@ -5,5 +5,6 @@ export { addProductReview, getProductReviews } from "./user/reviews.controller.j
 export { getUserCart, saveUserCart, addToCart, removeCartByProduct, updateCartItem, clearCart } from "./user/cart.controller.js";
 export { getUserProfile, updateUserProfile, listWishlist, addToWishlistDb, removeFromWishlistDb, clearWishlistDb } from "./user/profile.controller.js";
 export { getUserOrders, createOrder, confirmPayment } from "./user/orders.controller.js";
+export { downloadOrderInvoice } from "./user/invoices.controller.js";
 export { updateUserAddress, getUserAddresses, createNewAddress } from "./user/addresses.controller.js";
 export { cancelOrder, requestReturn, lookupPincode, estimateDelivery } from "./user/orderActions.controller.js";
