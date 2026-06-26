@@ -9,6 +9,7 @@ import {
   allowedOrderTransitions,
   transitionOrder,
 } from "../../services/admin/orderTransition.service.js";
+import { ensureInvoiceForDeliveredOrder } from "../../services/invoice.service.js";
 import { writeAdminAudit } from "../../utils/adminAudit.js";
 
 const orderFilter = (query) => {
@@ -84,6 +85,21 @@ export const updateOrderStatus = async (req, res) => {
         entityId: result.order.order_id || result.order._id,
         metadata: { status: result.order.status, note: req.body?.note || "" },
       });
+    }
+    if (String(result.order.status || "").toUpperCase() === "DELIVERED") {
+      try {
+        await ensureInvoiceForDeliveredOrder(result.order._id);
+      } catch (invoiceError) {
+        console.error("Invoice creation failed for delivered order:", {
+          orderId: result.order._id,
+          orderNumber: result.order.order_id,
+          message: invoiceError.message,
+        });
+        return res.status(invoiceError.statusCode || 500).json({
+          status: false,
+          message: invoiceError.message || "Order delivered but invoice could not be created",
+        });
+      }
     }
     return res.json({
       status: true,

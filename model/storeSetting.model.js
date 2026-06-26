@@ -7,7 +7,9 @@ const StoreSettingSchema = new mongoose.Schema(
     supportEmail: { type: String, default: "" },
     supportPhone: { type: String, default: "" },
     address: { type: String, default: "" },
+    gstin: { type: String, default: "" },
     gstNumber: { type: String, default: "" },
+    gstPercentage: { type: Number, default: null, min: 0 },
     socialLinks: {
       instagram: { type: String, default: "" },
       facebook: { type: String, default: "" },
