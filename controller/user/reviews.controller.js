@@ -105,10 +105,10 @@ const asImages = (review) => {
 
 export const listPublicReviews = async (req, res) => {
   try {
-    const minRating = Math.max(1, Math.min(5, Number(req.query.minRating) || 4));
+    const minRating = Math.max(1, Math.min(5, Number(req.query.minRating) || 3));
     const limit = Math.min(100, Math.max(1, Number.parseInt(req.query.limit, 10) || 40));
     const rows = await Reviews.find({
-      status: { $in: ["APPROVED", "PUBLISHED", "approved", "published"] },
+      status: { $nin: ["REJECTED", "rejected"] },
       rating: { $gte: minRating },
     })
       .sort({ createdAt: -1 })
