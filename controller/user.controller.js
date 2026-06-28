@@ -1,7 +1,8 @@
 export { showProducts, getProductById, getProductByCategory } from "./user/catalog.controller.js";
 export { searchProducts } from "./user/search.controller.js";
 export { getTopProducts, getCategories } from "./user/discovery.controller.js";
-export { addProductReview, getProductReviews } from "./user/reviews.controller.js";
+export { addProductReview, getProductReviews, listPublicReviews } from "./user/reviews.controller.js";
+export { getInstagramReels } from "./user/instagram.controller.js";
 export { getUserCart, saveUserCart, addToCart, removeCartByProduct, updateCartItem, clearCart } from "./user/cart.controller.js";
 export { getUserProfile, updateUserProfile, listWishlist, addToWishlistDb, removeFromWishlistDb, clearWishlistDb } from "./user/profile.controller.js";
 export { getUserOrders, createOrder, confirmPayment } from "./user/orders.controller.js";

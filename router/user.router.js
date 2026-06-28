@@ -7,7 +7,9 @@ import {
   getTopProducts,
   getCategories,
   getProductReviews,
+  listPublicReviews,
   addProductReview,
+  getInstagramReels,
   listWishlist,
   addToWishlistDb,
   removeFromWishlistDb,
@@ -45,6 +47,8 @@ router.get("/search", searchProducts);
 router.post("/search", searchProducts);
 router.get("/top-products", getTopProducts);
 router.get("/get-categories", getCategories);
+router.get("/reviews", listPublicReviews);
+router.get("/instagram/reels", getInstagramReels);
 router.get("/get-product-reviews/:id", getProductReviews);
 router.post("/product-reviews", upload.single("reviewImage"), addProductReview);
 router.post("/wishlist/list", requireUserAuth, listWishlist);

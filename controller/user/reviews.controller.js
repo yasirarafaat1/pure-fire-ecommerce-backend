@@ -97,4 +97,49 @@ export const getProductReviews = async (req, res) => {
   }
 };
 
+const asImages = (review) => {
+  const value = review.review_image || review.image || review.images || review.review_images || "";
+  if (Array.isArray(value)) return value.filter(Boolean);
+  return value ? [value] : [];
+};
+
+export const listPublicReviews = async (req, res) => {
+  try {
+    const minRating = Math.max(1, Math.min(5, Number(req.query.minRating) || 4));
+    const limit = Math.min(100, Math.max(1, Number.parseInt(req.query.limit, 10) || 40));
+    const rows = await Reviews.find({
+      status: { $in: ["APPROVED", "PUBLISHED", "approved", "published"] },
+      rating: { $gte: minRating },
+    })
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean();
+
+    const productIds = [...new Set(rows.map((review) => Number(review.product_id)).filter(Boolean))];
+    const products = productIds.length
+      ? await Products.find({ product_id: { $in: productIds } }).select("product_id name title").lean()
+      : [];
+    const productMap = new Map(products.map((product) => [Number(product.product_id), product]));
+
+    const reviews = rows.map((review) => {
+      const product = productMap.get(Number(review.product_id));
+      return {
+        id: review._id,
+        user: review.user || review.user_name || review.userName || review.name || review.customerName || "Customer",
+        rating: Number(review.review_rate || review.rating || 0),
+        text: review.review_text || review.text || review.review || review.message || review.comment || "",
+        images: asImages(review),
+        productId: review.product_id,
+        productName: product?.name || product?.title || "",
+        createdAt: review.createdAt,
+      };
+    });
+
+    return res.status(200).json({ status: true, reviews });
+  } catch (error) {
+    console.error("listPublicReviews error:", error);
+    return res.status(200).json({ status: true, reviews: [] });
+  }
+};
+
 // --- Cart API ---

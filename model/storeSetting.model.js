@@ -26,6 +26,19 @@ const StoreSettingSchema = new mongoose.Schema(
       defaultCourier: { type: String, default: "" },
       freeShippingThreshold: { type: Number, default: 0 },
     },
+    instagramReels: {
+      enabled: { type: Boolean, default: false },
+      handle: { type: String, default: "" },
+      igUserId: { type: String, default: "" },
+      pageId: { type: String, default: "" },
+      accessToken: { type: String, default: "" },
+      tokenExpiresAt: { type: String, default: "" },
+      metaAppId: { type: String, default: "" },
+      metaAppSecret: { type: String, default: "" },
+      lastSyncedAt: { type: Date, default: null },
+      lastSyncStatus: { type: String, default: "" },
+      lastSyncError: { type: String, default: "" },
+    },
   },
   { timestamps: true }
 );
