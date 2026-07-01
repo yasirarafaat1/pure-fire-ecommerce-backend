@@ -37,6 +37,16 @@ import {
 import { addRecentSearch, addRecentViewed, getSuggestedProducts } from "../controller/activity.controller.js";
 import { upload } from "../middleware/multer.middleware.js";
 import { requireUserAuth } from "../middleware/userAuth.middleware.js";
+import { detectAssistantAuth } from "../middleware/assistantOptionalAuth.middleware.js";
+import { assistantRateLimit } from "../middleware/assistantRateLimit.middleware.js";
+import {
+  assistantFeedback,
+  assistantHistory,
+  assistantSessions,
+  assistantOrderLookup,
+  createAssistantSession,
+  sendAssistantMessage,
+} from "../controller/user/assistant.controller.js";
 
 const router = Router();
 
@@ -77,6 +87,12 @@ router.get("/delivery-estimate", estimateDelivery);
 router.post("/activity/search", requireUserAuth, addRecentSearch);
 router.post("/activity/view", requireUserAuth, addRecentViewed);
 router.get("/suggested-products", requireUserAuth, getSuggestedProducts);
+router.post("/assistant/session", detectAssistantAuth, createAssistantSession);
+router.post("/assistant/message", detectAssistantAuth, assistantRateLimit, sendAssistantMessage);
+router.post("/assistant/order-lookup", detectAssistantAuth, assistantRateLimit, assistantOrderLookup);
+router.post("/assistant/feedback", detectAssistantAuth, assistantFeedback);
+router.get("/assistant/sessions", detectAssistantAuth, assistantSessions);
+router.get("/assistant/history", detectAssistantAuth, assistantHistory);
 
 export { router };
 export default router;

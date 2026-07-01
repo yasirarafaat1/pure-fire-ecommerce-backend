@@ -1,4 +1,5 @@
 import Cart from "../../model/cart.model.js";
+import Products from "../../model/product.model.js";
 export const getUserCart = async (req, res) => {
   try {
     const cartId = req.body?.cart_id;
@@ -42,19 +43,34 @@ export const addToCart = async (req, res) => {
     if (!product_id || !price || !mrp || !title) {
       return res.status(400).json({ status: false, message: "Missing product details." });
     }
+    const requestedQty = Number(qty) || 1;
+    const product = await Products.findOne({ product_id: Number(product_id), status: "published" })
+      .select("quantity")
+      .lean();
+    if (!product) {
+      return res.status(404).json({ status: false, message: "Product is not available." });
+    }
+    const availableQty = Number(product.quantity || 0);
+    if (availableQty <= 0) {
+      return res.status(400).json({ status: false, message: "Product is out of stock." });
+    }
     const cartId = cart_id || `cart_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const cart = (await Cart.findOne({ cart_id: cartId })) || new Cart({ cart_id: cartId, items: [] });
     const idx = cart.items.findIndex(
       (i) => i.product_id === Number(product_id) && i.color === color && i.size === size,
     );
+    const currentQty = idx >= 0 ? Number(cart.items[idx].qty || 0) : 0;
+    if (currentQty + requestedQty > availableQty) {
+      return res.status(400).json({ status: false, message: `Only ${availableQty} item(s) are available.` });
+    }
     if (idx >= 0) {
-      cart.items[idx].qty += Number(qty) || 1;
+      cart.items[idx].qty += requestedQty;
     } else {
       cart.items.push({
         product_id: Number(product_id),
         color,
         size,
-        qty: Number(qty) || 1,
+        qty: requestedQty,
         price: Number(price),
         mrp: Number(mrp),
         title,

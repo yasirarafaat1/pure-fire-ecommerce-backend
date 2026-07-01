@@ -44,18 +44,44 @@ export const createOrder = async (req, res) => {
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ status: false, message: "Items required" });
     }
+    if (!address_id) {
+      return res.status(400).json({ status: false, message: "Delivery address required" });
+    }
+    const addressDoc = await Addresses.findOne({
+      address_id: Number(address_id),
+      ...(email ? { email } : {}),
+    }).lean();
+    if (!addressDoc) {
+      return res.status(400).json({ status: false, message: "Please select a valid delivery address" });
+    }
 
     // fetch product prices
     const ids = items.map((i) => Number(i.product_id)).filter(Boolean);
-    const products = await Products.find({ product_id: { $in: ids } }).lean();
+    const products = await Products.find({ product_id: { $in: ids }, status: "published" }).lean();
     const productMap = new Map(products.map((p) => [p.product_id, p]));
 
     let amountPaise = 0;
     const orderItems = [];
     for (const it of items) {
       const prod = productMap.get(Number(it.product_id));
-      const price = prod ? Number(prod.selling_price || prod.price || 0) : 0;
       const qty = Number(it.quantity) || 1;
+      if (!prod) {
+        return res.status(404).json({ status: false, message: `Product ${it.product_id} is not available` });
+      }
+      if (!Number.isInteger(qty) || qty <= 0) {
+        return res.status(400).json({ status: false, message: "Valid item quantity required" });
+      }
+      const availableQty = Number(prod.quantity || 0);
+      if (availableQty <= 0) {
+        return res.status(400).json({ status: false, message: `${prod.name || prod.title || "Product"} is out of stock` });
+      }
+      if (qty > availableQty) {
+        return res.status(400).json({
+          status: false,
+          message: `Only ${availableQty} item(s) available for ${prod.name || prod.title || "this product"}`,
+        });
+      }
+      const price = Number(prod.selling_price || prod.price || 0);
       amountPaise += Math.max(price, 0) * qty * 100;
       orderItems.push({
         product_id: it.product_id,
@@ -95,8 +121,8 @@ export const createOrder = async (req, res) => {
     await PendingOrders.create({
       razorpay_order_id: order.id,
       items: orderItems,
-      address_id: address_id ? Number(address_id) : null,
-      email: email || "",
+      address_id: Number(address_id),
+      email: email || addressDoc.email || "",
       amount: payload.amount,
       currency: payload.currency,
     });
