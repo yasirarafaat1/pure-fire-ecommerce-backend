@@ -153,7 +153,7 @@ export const detectAssistantIntent = (message = "") => {
   } else if (hasCountRequest(text)) {
     intent = "account_counts";
     confidence = 0.94;
-  } else if (hasAny(text, [/\bmy orders\b/, /\ball orders\b/, /\border history\b/, /\bmy order list\b/, /\bmy order\b.*\b(show|list)\b/, /\bshow\b.*\bmy order\b/, /मेरे order/, /मेरे ऑर्डर/])) {
+  } else if (hasAny(text, [/^orders?$/, /\bview orders?\b/, /\bopen orders?\b/, /\bshow orders?\b/, /\bmy orders\b/, /\ball orders\b/, /\border history\b/, /\border list\b/, /\bmy order list\b/, /\bmy order\b.*\b(show|list)\b/, /\bshow\b.*\bmy order\b/, /मेरे order/, /मेरे ऑर्डर/])) {
     intent = "my_orders";
     confidence = 0.95;
   } else if (hasAny(text, [/\blast order\b/, /\blatest order\b/, /\brecent order\b/, /\bpichla order\b/, /\bakhri order\b/, /पिछला order/, /आखिरी order/])) {

@@ -202,6 +202,48 @@ const getAccountCounts = async ({ userEmail = "", cartId = "" }) => {
   return { cart, wishlist, orders, addresses };
 };
 
+const countLabels = {
+  cart: "cart",
+  wishlist: "wishlist",
+  orders: "orders",
+  addresses: "addresses",
+};
+
+const countActionLabels = {
+  cart: "View cart",
+  wishlist: "View wishlist",
+  orders: "View orders",
+  addresses: "View addresses",
+};
+
+const getRequestedCountKeys = (message = "") => {
+  const text = String(message || "").toLowerCase();
+  const keys = [];
+  if (/\bcart\b|\bbag\b|\bbasket\b|\bकार्ट\b/.test(text)) keys.push("cart");
+  if (/\bwishlist\b|\bsaved\b|\bfavou?rite\b|\bpasand\b|\bविशलिस्ट\b/.test(text)) keys.push("wishlist");
+  if (/\border\b|\borders\b|\bऑर्डर\b/.test(text)) keys.push("orders");
+  if (/\baddress\b|\baddresses\b|\bpata\b|\bएड्रेस\b|\bपता\b/.test(text)) keys.push("addresses");
+  if (/\ball\b|\bsab\b|\baccount\b|\bsummary\b|\bsare\b|\bसभी\b|\bसब\b/.test(text) || keys.length === 0) {
+    return ["cart", "wishlist", "orders", "addresses"];
+  }
+  return Array.from(new Set(keys));
+};
+
+const buildCountMessage = ({ keys = [], counts = {}, isAuthenticated = false }) => {
+  if (keys.length === 1) {
+    const key = keys[0];
+    const label = countLabels[key] || key;
+    const value = Number(counts[key] || 0);
+    if (key !== "cart" && !isAuthenticated) {
+      return `Login is required to view your ${label} count.`;
+    }
+    return `Your ${label} count is ${value}.`;
+  }
+  return isAuthenticated
+    ? "Here are your requested account counts."
+    : "I can show your cart count here. Login is required for private account counts.";
+};
+
 const policies = {
   shipping_policy: {
     title: "Shipping policy",
@@ -282,7 +324,7 @@ const buildProductBuyResponse = async ({ context = {} }) => {
   }
 
   return {
-    message: `Ready to buy ${product.name || product.title || "this product"}. Use Buy Now on this card, choose quantity, confirm address, then I will send you to the payment page.`,
+    message: `Ready to buy ${product.name || product.title || "this product"}. Use Buy Now on this card, choose quantity, confirm address, then payment will open here.`,
     cards: [productCard(product, ["Current product"])],
     suggestions: ["Is it in stock?", "Shipping policy", "Payment help"],
   };
@@ -508,16 +550,24 @@ export const runAssistantTool = async ({ intent, message, auth, context = {}, or
     }
     case "account_counts": {
       const counts = await getAccountCounts({ userEmail: isAuthenticated ? userEmail : "", cartId });
-      const cards = [countSummaryCard(counts)];
-      if (!isAuthenticated) {
+      const requestedKeys = getRequestedCountKeys(message);
+      const privateKeys = requestedKeys.filter((key) => key !== "cart");
+      const visibleKeys = isAuthenticated ? requestedKeys : requestedKeys.filter((key) => key === "cart");
+      const cards = visibleKeys.length
+        ? [countSummaryCard(counts, {
+            keys: visibleKeys,
+            title: visibleKeys.length === 1
+              ? `${visibleKeys[0][0].toUpperCase()}${visibleKeys[0].slice(1)} count`
+              : "Requested counts",
+          })]
+        : [];
+      if (!isAuthenticated && privateKeys.length) {
         cards.push(loginPromptCard("Login to see your wishlist, orders, and saved address counts."));
       }
       return {
-        message: isAuthenticated
-          ? "Here are your cart, wishlist, order, and address counts."
-          : "I can show your cart count here. Login is required for private account counts.",
+        message: buildCountMessage({ keys: requestedKeys, counts, isAuthenticated }),
         cards,
-        suggestions: isAuthenticated ? ["View cart", "My orders", "Wishlist"] : ["Login", "Find products", "Track order"],
+        suggestions: visibleKeys.map((key) => countActionLabels[key]).filter(Boolean),
       };
     }
     case "best_sellers": {

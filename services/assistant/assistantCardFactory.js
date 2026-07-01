@@ -163,22 +163,28 @@ export const logoutConfirmCard = (language = "en") => {
   };
 };
 
-export const countSummaryCard = (counts = {}) => ({
-  type: "count_summary",
-  title: "Your account summary",
-  counts: {
-    cart: Number(counts.cart || 0),
-    wishlist: Number(counts.wishlist || 0),
-    orders: Number(counts.orders || 0),
-    addresses: Number(counts.addresses || 0),
-  },
-  actions: [
-    { label: "View cart", type: "link", href: "/cart" },
-    { label: "View orders", type: "link", href: "/orders" },
-    { label: "View wishlist", type: "link", href: "/wishlist" },
-    { label: "View addresses", type: "link", href: "/profile" },
-  ],
-});
+export const countSummaryCard = (counts = {}, options = {}) => {
+  const allKeys = ["cart", "wishlist", "orders", "addresses"];
+  const keys = Array.isArray(options.keys) && options.keys.length
+    ? options.keys.filter((key) => allKeys.includes(key))
+    : allKeys;
+  const actionMap = {
+    cart: { label: "View cart", type: "link", href: "/cart" },
+    orders: { label: "View orders", type: "link", href: "/orders" },
+    wishlist: { label: "View wishlist", type: "link", href: "/wishlist" },
+    addresses: { label: "View addresses", type: "link", href: "/profile" },
+  };
+
+  return {
+    type: "count_summary",
+    title: options.title || (keys.length === 1 ? `${keys[0][0].toUpperCase()}${keys[0].slice(1)} count` : "Your account summary"),
+    counts: keys.reduce((next, key) => {
+      next[key] = Number(counts[key] || 0);
+      return next;
+    }, {}),
+    actions: keys.map((key) => actionMap[key]).filter(Boolean),
+  };
+};
 
 export const orderLookupCard = () => ({
   type: "order_lookup",
