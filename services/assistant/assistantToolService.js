@@ -227,8 +227,22 @@ const safePageTitle = (context = {}) =>
     .trim()
     .slice(0, 120);
 
+const inferPageTypeFromPath = (path = "") => {
+  const first = String(path || "").split("?")[0].split("/").filter(Boolean)[0] || "home";
+  if (first === "product") return "product";
+  if (first === "collections") return "collection";
+  if (first === "profile") return "profile";
+  if (first === "orders") return "orders";
+  if (first === "wishlist") return "wishlist";
+  if (first === "checkout") return "checkout";
+  if (["shipping-info", "return-policy", "refund-policy", "return-exchange-policy", "terms-and-conditions", "privacy-policy", "faqs"].includes(first)) return "policy";
+  if (first === "support" || first === "contact") return "support";
+  return "home";
+};
+
 const getProductFromContext = async (context = {}) => {
-  const rawId = String(context.productId || "").trim();
+  const pathProductId = String(context.currentPath || "").match(/\/product\/([^/?#]+)/)?.[1] || "";
+  const rawId = String(context.productId || pathProductId || "").trim();
   const title = safePageTitle(context);
   const numericId = Number(rawId);
   const filters = [];
@@ -256,8 +270,28 @@ const getProductFromContext = async (context = {}) => {
   return null;
 };
 
+const buildProductBuyResponse = async ({ context = {} }) => {
+  const product = await getProductFromContext({ ...context, pageType: "product" });
+
+  if (!product) {
+    return {
+      message: "Please open the product page or click Buy Now on a product card, then I can continue checkout.",
+      cards: [textCard("I need a specific product before I can prepare checkout.")],
+      suggestions: ["Find products", "Best sellers", "New arrivals"],
+    };
+  }
+
+  return {
+    message: `Ready to buy ${product.name || product.title || "this product"}. Use Buy Now on this card, choose quantity, confirm address, then I will send you to the payment page.`,
+    cards: [productCard(product, ["Current product"])],
+    suggestions: ["Is it in stock?", "Shipping policy", "Payment help"],
+  };
+};
+
 const buildPageContextResponse = async ({ context = {}, userEmail = "", isAuthenticated = false, cartId = "" }) => {
-  const pageType = String(context.pageType || "").trim();
+  const rawPageType = String(context.pageType || "").trim();
+  const inferredPageType = inferPageTypeFromPath(context.currentPath);
+  const pageType = rawPageType && rawPageType !== "home" ? rawPageType : inferredPageType;
   const title = safePageTitle(context);
 
   if (pageType === "product") {
@@ -393,7 +427,10 @@ export const runAssistantTool = async ({ intent, message, auth, context = {}, or
   const userEmail = auth?.email || "";
   const isAuthenticated = Boolean(auth?.isAuthenticated && userEmail);
   const cartId = context?.cartId || context?.cart_id || "";
-  const hasPageContext = Boolean(context?.pageType && context.pageType !== "home");
+  const rawPageType = String(context?.pageType || "").trim();
+  const inferredPageType = inferPageTypeFromPath(context?.currentPath);
+  const effectivePageType = rawPageType && rawPageType !== "home" ? rawPageType : inferredPageType;
+  const hasPageContext = Boolean(effectivePageType && effectivePageType !== "home");
 
   if (!isAuthenticated && ["profile_summary", "my_orders", "latest_order", "wishlist_view", "address_view"].includes(intent)) {
     return {
@@ -404,6 +441,8 @@ export const runAssistantTool = async ({ intent, message, auth, context = {}, or
   }
 
   switch (intent) {
+    case "product_buy":
+      return buildProductBuyResponse({ context });
     case "page_context":
       return buildPageContextResponse({ context, userEmail, isAuthenticated, cartId });
     case "product_detail": {

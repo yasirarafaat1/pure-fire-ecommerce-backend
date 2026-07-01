@@ -8,7 +8,7 @@ export const refineIntentWithAi = async ({ message, current }) => {
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
     const prompt = [
       "Classify this ecommerce assistant request into one intent only.",
-      "Allowed intents: product_search, product_recommendation, product_detail, page_context, best_sellers, new_arrivals, order_status, my_orders, latest_order, profile_summary, wishlist_view, address_view, cart_view, shipping_policy, return_policy, payment_policy, support_request, greeting, unknown.",
+      "Allowed intents: product_search, product_recommendation, product_detail, product_buy, page_context, best_sellers, new_arrivals, order_status, my_orders, latest_order, profile_summary, wishlist_view, address_view, cart_view, shipping_policy, return_policy, payment_policy, support_request, greeting, unknown.",
       "Return only JSON like {\"intent\":\"product_search\"}.",
       `Message: ${String(message || "").slice(0, 300)}`,
     ].join("\n");
