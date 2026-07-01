@@ -27,6 +27,18 @@ const sanitizeText = (value, max = 1000) =>
 const userSummary = (email) =>
   email ? { emailMasked: email.replace(/^(.{2}).*(@.*)$/, "$1***$2") } : null;
 
+const sanitizeReplyTo = (value) => {
+  if (!value || typeof value !== "object") return null;
+  const role = ["user", "assistant", "system", "tool"].includes(value.role) ? value.role : "";
+  const content = sanitizeText(value.content, 500);
+  if (!role || !content) return null;
+  return {
+    id: sanitizeText(value.id, 160),
+    role,
+    content,
+  };
+};
+
 export const createAssistantSession = async (req, res) => {
   try {
     const userId = req.assistantAuth?.email || "";
@@ -66,12 +78,21 @@ export const sendAssistantMessage = async (req, res) => {
       req,
     });
 
-    await saveAssistantMessage({
+    const incomingReplyTo = sanitizeReplyTo(req.body?.context?.replyTo);
+    const userMessage = await saveAssistantMessage({
       sessionId: session.sessionId,
       userId,
       role: "user",
       content: message,
+      metadata: {
+        replyTo: incomingReplyTo,
+      },
     });
+    const assistantReplyTo = {
+      id: String(userMessage._id || ""),
+      role: "user",
+      content: message,
+    };
 
     const detected = detectAssistantIntent(message);
     const refined = await refineIntentWithAi({ message, current: detected });
@@ -93,6 +114,7 @@ export const sendAssistantMessage = async (req, res) => {
       suggestions: result.suggestions,
       toolCalls: [{ intent: refined.intent }],
       metadata: {
+        replyTo: assistantReplyTo,
         latencyMs: Date.now() - startedAt,
         model: refined.aiModel || null,
       },
@@ -112,6 +134,7 @@ export const sendAssistantMessage = async (req, res) => {
       intent: refined.intent,
       cards: result.cards || [],
       suggestions: result.suggestions || [],
+      replyTo: assistantReplyTo,
     });
   } catch (error) {
     console.error("sendAssistantMessage error:", error);
@@ -135,13 +158,18 @@ export const assistantOrderLookup = async (req, res) => {
       userEmail: userId,
       isAuthenticated: Boolean(userId),
     });
-    await saveAssistantMessage({
+    const userMessage = await saveAssistantMessage({
       sessionId: session.sessionId,
       userId,
       role: "user",
       content: `Track order ${orderId}`,
       intent: "order_status",
     });
+    const assistantReplyTo = {
+      id: String(userMessage._id || ""),
+      role: "user",
+      content: `Track order ${orderId}`,
+    };
     await ensureAssistantSessionTitle({
       sessionId: session.sessionId,
       message: `Track order ${orderId}`,
@@ -156,6 +184,7 @@ export const assistantOrderLookup = async (req, res) => {
       cards: result.cards,
       suggestions: result.suggestions,
       toolCalls: [{ intent: "order_status", orderId }],
+      metadata: { replyTo: assistantReplyTo },
     });
     return res.status(200).json({
       status: true,
@@ -164,6 +193,7 @@ export const assistantOrderLookup = async (req, res) => {
       intent: "order_status",
       cards: result.cards,
       suggestions: result.suggestions,
+      replyTo: assistantReplyTo,
     });
   } catch (error) {
     console.error("assistantOrderLookup error:", error);
