@@ -126,6 +126,9 @@ export const detectAssistantIntent = (message = "") => {
   } else if (hasAny(text, [/\blogin\b/, /\blog in\b/, /\bsign in\b/, /\blogin kar\b/, /\blogin kr\b/, /\baccount login\b/, /लॉगिन/, /लॉग इन/])) {
     intent = "login_start";
     confidence = 0.95;
+  } else if (hasAny(text, [/\bthis page\b/, /\bcurrent page\b/, /\babout this\b/, /\bexplain this\b/, /\bthis product\b/, /\bcurrent product\b/, /\bis product\b/, /\bye product\b/, /\bis page\b/, /\bye page\b/, /\biske baare\b/, /\biski detail\b/, /\bdetails?\b/])) {
+    intent = hasAny(text, [/\bproduct\b/, /\bis product\b/, /\bye product\b/, /\bcurrent product\b/]) ? "product_detail" : "page_context";
+    confidence = 0.92;
   } else if (hasCountRequest(text)) {
     intent = "account_counts";
     confidence = 0.94;

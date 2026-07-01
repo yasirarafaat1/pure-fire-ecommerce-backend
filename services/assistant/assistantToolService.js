@@ -220,10 +220,180 @@ const policies = {
   },
 };
 
+const safePageTitle = (context = {}) =>
+  String(context.title || context.productTitle || context.collectionSlug || "")
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 120);
+
+const getProductFromContext = async (context = {}) => {
+  const rawId = String(context.productId || "").trim();
+  const title = safePageTitle(context);
+  const numericId = Number(rawId);
+  const filters = [];
+
+  if (Number.isFinite(numericId) && numericId > 0) {
+    filters.push({ product_id: numericId });
+  }
+
+  if (/^[a-f\d]{24}$/i.test(rawId)) {
+    filters.push({ _id: rawId });
+  }
+
+  if (filters.length) {
+    const product = await Products.findOne({ $or: filters, status: "published" })
+      .populate({ path: "catagory_id", select: "name" })
+      .lean();
+    if (product) return product;
+  }
+
+  if (title) {
+    const result = await getSmartSearchProducts({ query: title, limit: 1 });
+    return result.products?.[0] || null;
+  }
+
+  return null;
+};
+
+const buildPageContextResponse = async ({ context = {}, userEmail = "", isAuthenticated = false, cartId = "" }) => {
+  const pageType = String(context.pageType || "").trim();
+  const title = safePageTitle(context);
+
+  if (pageType === "product") {
+    const product = await getProductFromContext(context);
+    if (product) {
+      const categoryProducts = product.catagory_id
+        ? await Products.find({
+            catagory_id: typeof product.catagory_id === "object" ? product.catagory_id._id : product.catagory_id,
+            product_id: { $ne: product.product_id },
+            status: "published",
+          })
+            .sort({ product_id: -1 })
+            .limit(3)
+            .populate({ path: "catagory_id", select: "name" })
+            .lean()
+        : [];
+
+      return {
+        message: `You are viewing ${product.name || product.title || "this product"}. I can help with stock, price, similar products, or checkout.`,
+        cards: [productCard(product, ["Current product"]), ...categoryProducts.map((row) => productCard(row, ["Similar"]))],
+        suggestions: ["Buy now", "Add to cart", "Similar products", "Is it in stock?"],
+      };
+    }
+
+    return {
+      message: title ? `You are viewing ${title}. I can help find matching products or similar items.` : "You are viewing a product page. I can help find details or similar items.",
+      cards: [],
+      suggestions: ["Similar products", "Best sellers", "New arrivals", "Under 1000"],
+    };
+  }
+
+  if (pageType === "collection") {
+    const result = await getSmartSearchProducts({ query: title || context.collectionSlug || "", email: userEmail, limit: 6 });
+    return {
+      message: title ? `You are browsing ${title}. Here are products you can explore from this context.` : "Here are products you can explore.",
+      cards: result.products.map((product) => productCard(product)),
+      suggestions: ["Best sellers", "New arrivals", "Under 1000", "Track order"],
+    };
+  }
+
+  if (pageType === "profile") {
+    if (!isAuthenticated) {
+      return {
+        message: "Login is required to view profile details.",
+        cards: [loginPromptCard("Login to view your profile, orders, wishlist, and addresses.")],
+        suggestions: ["Login", "Find products", "Track order"],
+      };
+    }
+    const counts = await getAccountCounts({ userEmail, cartId });
+    return {
+      message: "You are on your profile page. Here is your account summary.",
+      cards: [countSummaryCard(counts)],
+      suggestions: ["My profile", "My orders", "Wishlist", "Addresses"],
+    };
+  }
+
+  if (pageType === "orders" || pageType === "order_detail") {
+    if (!isAuthenticated) {
+      return {
+        message: "Login is required for your order history. You can still track by Order ID.",
+        cards: [orderLookupCard()],
+        suggestions: ["Track order", "Login", "Shipping policy"],
+      };
+    }
+    const orderId = context.orderId ? Number(String(context.orderId).replace(/\D/g, "")) : 0;
+    const filter = orderId ? { user_email: userEmail, order_id: orderId } : { user_email: userEmail };
+    const orders = await Orders.find(filter).sort({ createdAt: -1 }).limit(orderId ? 1 : 4).lean();
+    return {
+      message: orderId ? "You are viewing this order. Here is its latest saved status." : "You are on your orders page. Here are recent orders.",
+      cards: orders.length ? orders.map((order) => orderCard(order)) : [textCard("No matching order found.")],
+      suggestions: ["Track order", "Shipping policy", "Support"],
+    };
+  }
+
+  if (pageType === "wishlist") {
+    if (!isAuthenticated) {
+      return {
+        message: "Login is required to view your wishlist.",
+        cards: [loginPromptCard("Login to view saved wishlist products.")],
+        suggestions: ["Login", "Best sellers", "Find products"],
+      };
+    }
+    const rows = await Wishlist.find({ email: userEmail }).lean();
+    const ids = rows.map((row) => row.product_id);
+    const products = await Products.find({ product_id: { $in: ids }, status: "published" }).lean();
+    return {
+      message: "You are on your wishlist. I can help compare or buy saved products.",
+      cards: [wishlistCard(products)],
+      suggestions: ["Similar products", "Best sellers", "Cart count"],
+    };
+  }
+
+  if (pageType === "checkout") {
+    const counts = await getAccountCounts({ userEmail: isAuthenticated ? userEmail : "", cartId });
+    return {
+      message: "You are at checkout. I can help with cart count, address, payment, and delivery questions.",
+      cards: [countSummaryCard(counts)],
+      suggestions: isAuthenticated ? ["My addresses", "Payment help", "Shipping policy"] : ["Login", "Payment help", "Shipping policy"],
+    };
+  }
+
+  if (pageType === "policy") {
+    const normalizedTitle = title.toLowerCase();
+    const policyKey = normalizedTitle.includes("shipping")
+      ? "shipping_policy"
+      : normalizedTitle.includes("return") || normalizedTitle.includes("refund")
+        ? "return_policy"
+        : "payment_policy";
+    const policy = policies[policyKey];
+    return {
+      message: `You are reading ${title || policy.title}. Here is the short version.`,
+      cards: [policyCard(policy.title, policy.content, policy.href)],
+      suggestions: ["Find products", "Track order", "Support"],
+    };
+  }
+
+  if (pageType === "support") {
+    return {
+      message: "You are on support. I can help route order, return, payment, or delivery questions.",
+      cards: [supportCard()],
+      suggestions: ["Track order", "Return policy", "Payment help"],
+    };
+  }
+
+  return {
+    message: "I can help with this page, products, orders, cart, wishlist, policies, and support.",
+    cards: [textCard("Ask about this page, products, order tracking, or account details.")],
+    suggestions: defaultSuggestions,
+  };
+};
+
 export const runAssistantTool = async ({ intent, message, auth, context = {}, orderId }) => {
   const userEmail = auth?.email || "";
   const isAuthenticated = Boolean(auth?.isAuthenticated && userEmail);
   const cartId = context?.cartId || context?.cart_id || "";
+  const hasPageContext = Boolean(context?.pageType && context.pageType !== "home");
 
   if (!isAuthenticated && ["profile_summary", "my_orders", "latest_order", "wishlist_view", "address_view"].includes(intent)) {
     return {
@@ -234,7 +404,23 @@ export const runAssistantTool = async ({ intent, message, auth, context = {}, or
   }
 
   switch (intent) {
+    case "page_context":
+      return buildPageContextResponse({ context, userEmail, isAuthenticated, cartId });
+    case "product_detail": {
+      if (context?.pageType === "product" || context?.productId) {
+        return buildPageContextResponse({ context: { ...context, pageType: "product" }, userEmail, isAuthenticated, cartId });
+      }
+      const result = await getSmartSearchProducts({ query: message, email: userEmail, limit: 4 });
+      return {
+        message: result.products.length ? "I found product details you can open from these cards." : "Tell me which product you want details for.",
+        cards: result.products.map((product) => productCard(product)),
+        suggestions: ["Best sellers", "New arrivals", "Find products"],
+      };
+    }
     case "greeting":
+      if (hasPageContext) {
+        return buildPageContextResponse({ context, userEmail, isAuthenticated, cartId });
+      }
       return {
         message: "Hi, I can help you find products, track orders, and answer shopping questions.",
         cards: [textCard("Try asking for best sellers, new arrivals, or order status.")],
@@ -433,6 +619,9 @@ export const runAssistantTool = async ({ intent, message, auth, context = {}, or
     case "support_request":
       return { message: "Support is available from the support page.", cards: [supportCard()], suggestions: ["Track order", "Return policy"] };
     default:
+      if (hasPageContext) {
+        return buildPageContextResponse({ context, userEmail, isAuthenticated, cartId });
+      }
       return {
         message: "I can help with products, order tracking, policies, cart, wishlist, and profile questions.",
         cards: [textCard("Try: best sellers, my orders, return policy, or products under 1000.")],
