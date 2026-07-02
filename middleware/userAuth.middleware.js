@@ -1,4 +1,5 @@
 import UserSession from "../model/session.model.js";
+import Profile from "../model/profile.model.js";
 
 export const requireUserAuth = async (req, res, next) => {
   try {
@@ -17,6 +18,15 @@ export const requireUserAuth = async (req, res, next) => {
     if (session.expiresAt && new Date(session.expiresAt).getTime() < Date.now()) {
       await UserSession.deleteOne({ token });
       return res.status(401).json({ status: false, message: "Session expired" });
+    }
+
+    const profile = await Profile.findOne({ email: session.email }).select("status").lean();
+    if (String(profile?.status || "").toUpperCase() === "BLOCKED") {
+      await UserSession.deleteMany({ email: session.email });
+      return res.status(403).json({
+        status: false,
+        message: "Account blocked. Please contact support.",
+      });
     }
 
     req.user = { email: session.email };

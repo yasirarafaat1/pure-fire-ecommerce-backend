@@ -7,6 +7,7 @@ export const ADMIN_PERMISSIONS = {
     "inventory.manage",
     "orders.manage",
     "customers.read",
+    "customers.manage",
     "reviews.manage",
     "coupons.manage",
     "banners.manage",
