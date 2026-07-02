@@ -2,7 +2,7 @@ import Products from "../../model/product.model.js";
 import { Catagories } from "../../model/catagory.model.js";
 import { deleteFromCloudinary, extractPublicId, uploadToCloudinary } from "../../config/cloudinary.js";
 import * as helpers from "./productHelpers.js";
-const { parseArrayField, parseHighlights, parseColorVariants, validateColorVariants, applyColorVariantsToDoc, validateMediaRules, uploadMedia, uploadVariantMedia, normalizeFiles } = helpers;
+const { parseArrayField, parseHighlights, parseColorVariants, validateColorVariants, applyColorVariantsToDoc, validateMediaRules, uploadMedia, uploadVariantMedia, normalizeFiles, resolveVariantImageOrder } = helpers;
 
 const collectVariantMedia = (variants = []) => {
   const images = new Set();
@@ -287,7 +287,7 @@ export const updateProduct = async (req, res) => {
             video: vid,
           });
         }
-        cv.images = [...(cv.images || []), ...(imgs.length ? uploaded.images : [])];
+        cv.images = resolveVariantImageOrder(cv, imgs.length ? uploaded.images : []);
         cv.video = vid ? uploaded.video : cv.video || "";
         imgPtr += cv.imageCount || 0;
         if (vid) vidPtr += 1;

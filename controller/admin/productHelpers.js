@@ -49,6 +49,14 @@ export const parseColorVariants = (value) => {
     .map((v) => ({
       color: (v.color || "").trim(),
       images: Array.isArray(v.images) ? v.images.filter(Boolean) : [],
+      mediaOrder: Array.isArray(v.mediaOrder)
+        ? v.mediaOrder
+            .map((item) => ({
+              type: item?.type === "upload" ? "upload" : "existing",
+              url: item?.url ? String(item.url) : "",
+            }))
+            .filter((item) => item.type === "upload" || item.url)
+        : [],
       video: v.video || "",
       imageCount: v.imageCount != null ? Number(v.imageCount) : 0,
       hasVideo: v.hasVideo ?? !!v.video,
@@ -67,13 +75,40 @@ export const validateColorVariants = (cvs) => {
   if (!cvs.length) return "At least one color is required.";
   for (const cv of cvs) {
     const imgCount = (cv.images?.length || 0) + (cv.imageCount || 0);
-    const hasVideo = !!cv.video || !!cv.hasVideo || !!cv.videoFile;
     if (imgCount < 5) return `Color ${cv.color} needs at least 5 images.`;
-    if (!hasVideo) return `Color ${cv.color} needs exactly 1 video.`;
     if (!cv.sizes.length) return `Color ${cv.color} needs at least 1 size.`;
   }
   return null;
 };
+
+export const resolveVariantImageOrder = (cv, uploadedImages = []) => {
+  if (!cv.mediaOrder?.length) return [...(cv.images || []), ...uploadedImages];
+
+  let uploadIndex = 0;
+  const existingSet = new Set(cv.images || []);
+  const resolved = [];
+
+  cv.mediaOrder.forEach((item) => {
+    if (item.type === "upload") {
+      const uploaded = uploadedImages[uploadIndex];
+      uploadIndex += 1;
+      if (uploaded) resolved.push(uploaded);
+      return;
+    }
+
+    if (item.url && existingSet.has(item.url)) resolved.push(item.url);
+  });
+
+  (cv.images || []).forEach((url) => {
+    if (url && !resolved.includes(url)) resolved.push(url);
+  });
+  uploadedImages.slice(uploadIndex).forEach((url) => {
+    if (url) resolved.push(url);
+  });
+
+  return resolved;
+};
+
 export const applyColorVariantsToDoc = (doc, cvs) => {
   doc.colorVariants = cvs;
   doc.colors = cvs.map((c) => c.color);
@@ -97,7 +132,6 @@ export const validateMediaRules = ({ status, imagesCount, videoCount }) => {
   }
   if (status === "published") {
     if (imagesCount < 5) return "At least 5 images are required to publish.";
-    if (videoCount !== 1) return "Exactly 1 video is required to publish.";
   }
   if (videoCount > 1) return "Only 1 video allowed.";
   return null;

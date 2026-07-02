@@ -3,7 +3,7 @@ import Products from "../../model/product.model.js";
 import DraftProducts from "../../model/draftProduct.model.js";
 import { getNextSequence } from "../../model/counter.model.js";
 import * as helpers from "./productHelpers.js";
-const { parseArrayField, parseHighlights, parseColorVariants, validateColorVariants, applyColorVariantsToDoc, validateMediaRules, uploadMedia, uploadVariantMedia, stageFromLabel, normalizeFiles } = helpers;
+const { parseArrayField, parseHighlights, parseColorVariants, validateColorVariants, applyColorVariantsToDoc, validateMediaRules, uploadMedia, uploadVariantMedia, stageFromLabel, normalizeFiles, resolveVariantImageOrder } = helpers;
 export const uploadProduct = async (req, res) => {
   const files = normalizeFiles(req.files);
   const imageFiles = files.images || [];
@@ -144,7 +144,7 @@ export const uploadProduct = async (req, res) => {
         if (imgs.length || vid) {
           uploaded = await uploadVariantMedia({ productId, color: cv.color, images: imgs, video: vid });
         }
-        cv.images = imgs.length ? uploaded.images : cv.images || [];
+        cv.images = resolveVariantImageOrder(cv, imgs.length ? uploaded.images : []);
         cv.video = vid ? uploaded.video : cv.video || "";
         imgPtr += cv.imageCount || 0;
         if (vid) vidPtr += 1;
