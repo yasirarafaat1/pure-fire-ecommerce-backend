@@ -69,10 +69,6 @@ export const createDraftProduct = async (req, res) => {
         }
         imgPtr += cv.imageCount || 0;
       });
-      const cvError = validateColorVariants(colorVariants);
-      if (cvError) {
-        return res.status(400).json({ status: false, message: cvError });
-      }
     }
     const draftId = await getNextSequence("draft_id");
     let draft = new DraftProducts({

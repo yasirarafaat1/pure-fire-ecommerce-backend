@@ -67,10 +67,20 @@ const startServer = async () => {
 
   app.use((error, _req, res, _next) => {
     console.error("Unhandled request error:", error);
-    const status = error.name === "MulterError" ? 400 : error.statusCode || 500;
+    const status =
+      error.name === "MulterError" && error.code === "LIMIT_FILE_SIZE"
+        ? 413
+        : error.name === "MulterError"
+          ? 400
+          : error.statusCode || 500;
     res.status(status).json({
       status: false,
-      message: status === 500 ? "Server error" : error.message,
+      message:
+        status === 500
+          ? "Server error"
+          : status === 413
+            ? "Uploaded file is too large."
+            : error.message,
     });
   });
 

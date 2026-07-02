@@ -105,7 +105,7 @@ export const updateDraft = async (req, res) => {
         }
         imgPtr += cv.imageCount || 0;
       });
-      const cvError = validateColorVariants(colorVariants);
+      const cvError = targetStatus === "published" ? validateColorVariants(colorVariants) : null;
       if (cvError) {
         return res.status(400).json({ status: false, message: cvError });
       }
