@@ -50,7 +50,7 @@ export const parseColorVariants = (value) => {
       color: (v.color || "").trim(),
       images: Array.isArray(v.images) ? v.images.filter(Boolean) : [],
       video: v.video || "",
-      imageCount: Number(v.imageCount || v.images?.length || 0),
+      imageCount: v.imageCount != null ? Number(v.imageCount) : 0,
       hasVideo: v.hasVideo ?? !!v.video,
       price: v.price != null ? Number(v.price) : undefined,
       discountedPrice: v.discountedPrice != null ? Number(v.discountedPrice) : undefined,
@@ -65,9 +65,8 @@ export const parseColorVariants = (value) => {
 };
 export const validateColorVariants = (cvs) => {
   if (!cvs.length) return "At least one color is required.";
-  const seenImages = new Set();
   for (const cv of cvs) {
-    const imgCount = cv.images?.length || cv.imageCount || 0;
+    const imgCount = (cv.images?.length || 0) + (cv.imageCount || 0);
     const hasVideo = !!cv.video || !!cv.hasVideo || !!cv.videoFile;
     if (imgCount < 5) return `Color ${cv.color} needs at least 5 images.`;
     if (!hasVideo) return `Color ${cv.color} needs exactly 1 video.`;

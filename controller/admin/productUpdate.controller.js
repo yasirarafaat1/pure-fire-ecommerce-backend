@@ -1,8 +1,32 @@
 import Products from "../../model/product.model.js";
 import { Catagories } from "../../model/catagory.model.js";
-import { deleteFromCloudinary, extractPublicId } from "../../config/cloudinary.js";
+import { deleteFromCloudinary, extractPublicId, uploadToCloudinary } from "../../config/cloudinary.js";
 import * as helpers from "./productHelpers.js";
 const { parseArrayField, parseHighlights, parseColorVariants, validateColorVariants, applyColorVariantsToDoc, validateMediaRules, uploadMedia, uploadVariantMedia, normalizeFiles } = helpers;
+
+const collectVariantMedia = (variants = []) => {
+  const images = new Set();
+  const videos = new Set();
+  variants.forEach((variant) => {
+    (variant.images || []).forEach((url) => {
+      if (url) images.add(url);
+    });
+    if (variant.video) videos.add(variant.video);
+  });
+  return { images, videos };
+};
+
+const cleanupRemovedCloudMedia = (previousUrls, nextUrls, label) => {
+  previousUrls.forEach((url) => {
+    if (!url || nextUrls.has(url)) return;
+    const pid = extractPublicId(url);
+    if (!pid) return;
+    deleteFromCloudinary(pid).catch((err) =>
+      console.warn(`Failed to delete removed ${label}:`, pid, err.message)
+    );
+  });
+};
+
 export const updateProduct = async (req, res) => {
   const { product_id } = req.params;
   const files = normalizeFiles(req.files);
@@ -40,6 +64,7 @@ export const updateProduct = async (req, res) => {
         .status(404)
         .json({ status: false, message: "Product not found" });
     }
+    const previousVariantMedia = collectVariantMedia(product.colorVariants || []);
     const providedCategoryId = categoryId || req.body.catagory_id;
     let categoryData = null;
     if (providedCategoryId) {
@@ -84,8 +109,8 @@ export const updateProduct = async (req, res) => {
       let imgPtr = 0;
       let vidPtr = 0;
       colorVariants.forEach((cv) => {
-        if (!cv.imageCount) cv.imageCount = Number(cv.images?.length || 0);
-        if (cv.imageCount === 0) {
+        cv.imageCount = Number.isFinite(cv.imageCount) ? cv.imageCount : 0;
+        if (cv.imageCount === 0 && !(cv.images?.length)) {
           const remaining = variantImageFiles.length - imgPtr;
           cv.imageCount = remaining > 0 ? remaining : 0;
         }
@@ -125,7 +150,7 @@ export const updateProduct = async (req, res) => {
     // validate media constraints based on target status
     const targetStatus = status || product.status || "draft";
     const plannedImageCount = colorVariants.length
-      ? colorVariants[0].imageCount || 0
+      ? (colorVariants[0].images?.length || 0) + (colorVariants[0].imageCount || 0)
       : imageFiles.length > 0
       ? imageFiles.length
       : currentImages.length;
@@ -186,7 +211,7 @@ export const updateProduct = async (req, res) => {
           imageUrls.push(uploadRes.secure_url);
           publicIds.push(uploadRes.public_id);
         }
-      } else if (req.body.removeImages === "true" || (removedImageUrls.length && imageFiles.length === 0)) {
+      } else if (req.body.removeImages === "true") {
         for (const pid of publicIds) {
           try {
             await deleteFromCloudinary(pid);
@@ -262,12 +287,15 @@ export const updateProduct = async (req, res) => {
             video: vid,
           });
         }
-        cv.images = imgs.length ? uploaded.images : cv.images || [];
+        cv.images = [...(cv.images || []), ...(imgs.length ? uploaded.images : [])];
         cv.video = vid ? uploaded.video : cv.video || "";
         imgPtr += cv.imageCount || 0;
         if (vid) vidPtr += 1;
       }
       applyColorVariantsToDoc(product, colorVariants);
+      const nextVariantMedia = collectVariantMedia(colorVariants);
+      cleanupRemovedCloudMedia(previousVariantMedia.images, nextVariantMedia.images, "variant image");
+      cleanupRemovedCloudMedia(previousVariantMedia.videos, nextVariantMedia.videos, "variant video");
     } else {
       if (colors !== undefined) product.colors = parseArrayField(colors);
       if (sizes !== undefined) product.sizes = parseArrayField(sizes);
