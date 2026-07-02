@@ -1,5 +1,8 @@
 import Cart from "../../model/cart.model.js";
 import Catagories from "../../model/catagory.model.js";
+import AssistantFeedback from "../../model/assistantFeedback.model.js";
+import AssistantMessage from "../../model/assistantMessage.model.js";
+import AssistantSession from "../../model/assistantSession.model.js";
 import Orders from "../../model/orders.model.js";
 import Products from "../../model/product.model.js";
 import Profile from "../../model/profile.model.js";
@@ -269,6 +272,44 @@ export const getAnalyticsSummary = async ({ range: requestedRange }) => {
   const revenueOrderCount = revenueAgg[0]?.count || 0;
   const totalOrders = orderCounts[0] || 0;
   const returningCustomerCount = returningCustomers[0]?.count || 0;
+  const [
+    assistantSessionCount,
+    assistantMessageCount,
+    assistantUserSessions,
+    assistantGuestSessions,
+    assistantIntentBreakdown,
+    assistantDailyMessages,
+    assistantFeedbackBreakdown,
+  ] = await Promise.all([
+    AssistantSession.countDocuments(rangeMatch),
+    AssistantMessage.countDocuments(rangeMatch),
+    AssistantSession.countDocuments({ ...rangeMatch, userId: { $nin: [null, ""] } }),
+    AssistantSession.countDocuments({
+      ...rangeMatch,
+      $or: [{ userId: null }, { userId: "" }],
+    }),
+    AssistantMessage.aggregate([
+      { $match: { ...rangeMatch, role: "assistant", intent: { $nin: [null, ""] } } },
+      { $group: { _id: "$intent", count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+      { $limit: 8 },
+      { $project: { _id: 0, intent: "$_id", count: 1 } },
+    ]),
+    AssistantMessage.aggregate([
+      { $match: rangeMatch },
+      { $group: { _id: { $dateToString: { format: dateFormat, date: "$createdAt" } }, messages: { $sum: 1 } } },
+      { $project: { _id: 0, date: "$_id", messages: 1 } },
+      { $sort: { date: 1 } },
+    ]),
+    AssistantFeedback.aggregate([
+      { $match: rangeMatch },
+      { $group: { _id: "$rating", count: { $sum: 1 } } },
+      { $project: { _id: 0, rating: "$_id", count: 1 } },
+    ]),
+  ]);
+  const assistantMessagesPerSession = assistantSessionCount
+    ? Number((assistantMessageCount / assistantSessionCount).toFixed(1))
+    : 0;
 
   return {
     range,
@@ -313,6 +354,22 @@ export const getAnalyticsSummary = async ({ range: requestedRange }) => {
       productViews: { available: false, count: 0 },
       addToCart: { available: true, count: cartCount },
       wishlist: { available: true, count: wishlistCount },
+    },
+    assistant: {
+      kpis: {
+        sessions: assistantSessionCount,
+        messages: assistantMessageCount,
+        userSessions: assistantUserSessions,
+        guestSessions: assistantGuestSessions,
+        averageMessagesPerSession: assistantMessagesPerSession,
+      },
+      intentBreakdown: assistantIntentBreakdown,
+      dailyMessages: hydrateSeries(
+        baseBuckets.map((item) => ({ date: item.date, messages: 0 })),
+        assistantDailyMessages,
+        ["messages"],
+      ),
+      feedbackBreakdown: assistantFeedbackBreakdown,
     },
   };
 };

@@ -1,6 +1,28 @@
 import Orders from "../../model/orders.model.js";
 import Products from "../../model/product.model.js";
 import { getDeliveryEstimate, isShiprocketTestMode } from "../../config/shiprocket.js";
+
+const buildFallbackDeliveryEstimate = (pin, days = 4) => {
+  const eta = new Date();
+  eta.setDate(eta.getDate() + days);
+  const dd = eta.getDate();
+  const mm = eta.getMonth() + 1;
+  const yyyy = eta.getFullYear();
+  return {
+    status: true,
+    pin,
+    courier: {
+      id: null,
+      name: "Standard Delivery",
+      rate: 0,
+      etd: days,
+    },
+    etd_days: days,
+    eta: `${dd}-${mm}-${yyyy}`,
+    fallback: true,
+    test_mode: isShiprocketTestMode,
+  };
+};
 export const cancelOrder = async (req, res) => {
   try {
     const { order_id, id } = req.body || {};
@@ -118,7 +140,7 @@ export const estimateDelivery = async (req, res) => {
     const total = Number(req.query.total || req.body?.total || 0);
     const estimate = await getDeliveryEstimate({ deliveryPincode: pin, weight, total });
     if (!estimate?.courier) {
-      return res.status(404).json({ status: false, message: "No courier available" });
+      return res.status(200).json(buildFallbackDeliveryEstimate(pin));
     }
     const etdDays = Number(estimate.courier.etd || 0);
     const eta = new Date();
@@ -136,6 +158,10 @@ export const estimateDelivery = async (req, res) => {
     });
   } catch (error) {
     console.error("estimateDelivery error:", error);
+    const pin = String(req.query.pin || req.body?.pin || "").trim();
+    if (/^\d{6}$/.test(pin)) {
+      return res.status(200).json(buildFallbackDeliveryEstimate(pin));
+    }
     return res.status(500).json({ status: false, message: "Failed to estimate delivery" });
   }
 };
