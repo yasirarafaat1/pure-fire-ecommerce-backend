@@ -4,6 +4,10 @@ import {
   syncInstagramReels,
   testInstagramConnection,
 } from "../../services/instagramReels.service.js";
+import {
+  syncAllToGoogleSheets,
+  testGoogleSheetsConnection,
+} from "../../services/googleSheetsSync.service.js";
 
 const SECRET_MASK = "********";
 
@@ -20,6 +24,10 @@ const maskAdminSettings = (settings) => {
       ...(settings.instagramReels || {}),
       accessToken: settings.instagramReels?.accessToken ? SECRET_MASK : "",
       metaAppSecret: settings.instagramReels?.metaAppSecret ? SECRET_MASK : "",
+    },
+    googleSheets: {
+      ...(settings.googleSheets || {}),
+      secret: settings.googleSheets?.secret ? SECRET_MASK : "",
     },
   };
 };
@@ -57,6 +65,8 @@ export const updateSettings = async (req, res) => {
   const existing = await StoreSetting.findOne({ key: "default" }).lean();
   const incomingInstagram = req.body?.instagramReels || {};
   const existingInstagram = existing?.instagramReels || {};
+  const incomingGoogleSheets = req.body?.googleSheets || {};
+  const existingGoogleSheets = existing?.googleSheets || {};
   const accessToken =
     incomingInstagram.accessToken === SECRET_MASK
       ? existingInstagram.accessToken || ""
@@ -65,6 +75,10 @@ export const updateSettings = async (req, res) => {
     incomingInstagram.metaAppSecret === SECRET_MASK
       ? existingInstagram.metaAppSecret || ""
       : String(incomingInstagram.metaAppSecret || "").trim();
+  const googleSheetsSecret =
+    incomingGoogleSheets.secret === SECRET_MASK
+      ? existingGoogleSheets.secret || ""
+      : String(incomingGoogleSheets.secret || "").trim();
   const payload = {
     storeName: String(req.body?.storeName || "").trim(),
     supportEmail: String(req.body?.supportEmail || "").trim().toLowerCase(),
@@ -91,6 +105,19 @@ export const updateSettings = async (req, res) => {
       lastSyncedAt: existingInstagram.lastSyncedAt || null,
       lastSyncStatus: existingInstagram.lastSyncStatus || "",
       lastSyncError: existingInstagram.lastSyncError || "",
+    },
+    googleSheets: {
+      enabled: Boolean(incomingGoogleSheets.enabled),
+      appScriptUrl: String(incomingGoogleSheets.appScriptUrl || "").trim(),
+      secret: googleSheetsSecret,
+      spreadsheetId: String(incomingGoogleSheets.spreadsheetId || "").trim(),
+      productsTabName: String(incomingGoogleSheets.productsTabName || "Products").trim() || "Products",
+      ordersTabName: String(incomingGoogleSheets.ordersTabName || "Orders").trim() || "Orders",
+      lastSyncedAt: existingGoogleSheets.lastSyncedAt || null,
+      lastSyncStatus: existingGoogleSheets.lastSyncStatus || "",
+      lastSyncError: existingGoogleSheets.lastSyncError || "",
+      lastSyncStats: existingGoogleSheets.lastSyncStats || { products: 0, orders: 0 },
+      lastConnectedAt: existingGoogleSheets.lastConnectedAt || null,
     },
   };
   if (!payload.storeName) {
@@ -144,4 +171,18 @@ export const testInstagram = async (_req, res) => {
 export const syncInstagram = async (_req, res) => {
   const result = await syncInstagramReels();
   return res.json({ status: true, data: result, message: `Instagram reels synced: ${result.synced}` });
+};
+
+export const testGoogleSheets = async (_req, res) => {
+  const result = await testGoogleSheetsConnection();
+  return res.json({ status: true, data: result, message: "Google Sheets connection successful" });
+};
+
+export const syncGoogleSheets = async (_req, res) => {
+  const result = await syncAllToGoogleSheets();
+  return res.json({
+    status: true,
+    data: result,
+    message: `Google Sheets synced: ${result.products} products, ${result.orders} orders`,
+  });
 };

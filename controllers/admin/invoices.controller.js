@@ -10,6 +10,7 @@ import {
   generateInvoicePdf,
   validateInvoiceForPdf,
 } from "../../services/invoice.service.js";
+import { fireAndForgetSheetSync, syncOrderToGoogleSheets } from "../../services/googleSheetsSync.service.js";
 
 const require = createRequire(import.meta.url);
 const archiver = require("archiver");
@@ -82,6 +83,7 @@ export const ensureInvoiceForOrder = async (req, res) => {
   if (!invoice) {
     return res.status(404).json({ status: false, message: "Invoice is not available yet" });
   }
+  fireAndForgetSheetSync(syncOrderToGoogleSheets(invoice.orderNumber), "order");
   return res.json({ status: true, data: invoice });
 };
 

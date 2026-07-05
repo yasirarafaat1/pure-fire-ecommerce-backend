@@ -4,6 +4,7 @@ import Products from "../../model/product.model.js";
 import Addresses from "../../model/addresses.model.js";
 import { getNextSequence } from "../../model/counter.model.js";
 import { createShiprocketShipment, getMockOrderStatus, isShiprocketTestMode } from "../../config/shiprocket.js";
+import { fireAndForgetSheetSync, syncOrderToGoogleSheets } from "../../services/googleSheetsSync.service.js";
 export const getUserOrders = async (req, res) => {
   try {
     const email = (req.body?.email || "").trim();
@@ -219,6 +220,7 @@ export const confirmPayment = async (req, res) => {
       console.error("Shiprocket error:", shipErr);
     }
 
+    fireAndForgetSheetSync(syncOrderToGoogleSheets(order.order_id), "order");
     return res.status(200).json({ status: true, message: "Payment verified", order_id: order?.order_id });
   } catch (error) {
     console.error("confirmPayment error:", error);

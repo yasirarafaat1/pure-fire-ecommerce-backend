@@ -2,6 +2,7 @@ import Products from "../../model/product.model.js"; import DraftProducts from "
 import { Catagories } from "../../model/catagory.model.js";
 import { getNextSequence } from "../../model/counter.model.js";
 import { deleteFromCloudinary, extractPublicId, uploadToCloudinary } from "../../config/cloudinary.js";
+import { fireAndForgetSheetSync, syncProductToGoogleSheets } from "../../services/googleSheetsSync.service.js";
 import * as helpers from "./productHelpers.js";
 const { parseArrayField, parseHighlights, parseColorVariants, validateColorVariants, applyColorVariantsToDoc, validateMediaRules, uploadMedia, uploadVariantMedia, normalizeFiles, resolveVariantImageOrder } = helpers;
 
@@ -316,6 +317,7 @@ export const updateDraft = async (req, res) => {
         applyColorVariantsToDoc(product, draft.colorVariants);
       }
       await product.save();
+      fireAndForgetSheetSync(syncProductToGoogleSheets(product.product_id), "product");
       await draft.deleteOne();
       return res.status(200).json({ status: true, product, published: true });
     }

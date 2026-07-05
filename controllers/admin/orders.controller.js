@@ -11,6 +11,7 @@ import {
 } from "../../services/admin/orderTransition.service.js";
 import { ensureInvoiceForDeliveredOrder } from "../../services/invoice.service.js";
 import { writeAdminAudit } from "../../utils/adminAudit.js";
+import { fireAndForgetSheetSync, syncOrderToGoogleSheets } from "../../services/googleSheetsSync.service.js";
 
 const orderFilter = (query) => {
   const filter = { ...dateRangeFilter(query) };
@@ -101,6 +102,7 @@ export const updateOrderStatus = async (req, res) => {
         });
       }
     }
+    fireAndForgetSheetSync(syncOrderToGoogleSheets(result.order.order_id), "order");
     return res.json({
       status: true,
       message: result.message,
@@ -130,5 +132,6 @@ export const updateShipping = async (req, res) => {
     entityId: order.order_id,
     metadata: update,
   });
+  fireAndForgetSheetSync(syncOrderToGoogleSheets(order.order_id), "order");
   return res.json({ status: true, data: order });
 };

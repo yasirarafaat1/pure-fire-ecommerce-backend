@@ -1,6 +1,7 @@
 import Products from "../../model/product.model.js";
 import { Catagories } from "../../model/catagory.model.js";
 import { deleteFromCloudinary, extractPublicId, uploadToCloudinary } from "../../config/cloudinary.js";
+import { fireAndForgetSheetSync, syncProductToGoogleSheets } from "../../services/googleSheetsSync.service.js";
 import * as helpers from "./productHelpers.js";
 const { parseArrayField, parseHighlights, parseColorVariants, validateColorVariants, applyColorVariantsToDoc, validateMediaRules, uploadMedia, uploadVariantMedia, normalizeFiles, resolveVariantImageOrder } = helpers;
 
@@ -303,6 +304,7 @@ export const updateProduct = async (req, res) => {
     if (status) product.status = status;
     if (draft_stage) product.draft_stage = draft_stage;
     await product.save();
+    fireAndForgetSheetSync(syncProductToGoogleSheets(product.product_id), "product");
     res
       .status(200)
       .json({ status: true, message: "Product updated successfully", product });

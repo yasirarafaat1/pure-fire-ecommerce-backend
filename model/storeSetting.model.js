@@ -39,6 +39,22 @@ const StoreSettingSchema = new mongoose.Schema(
       lastSyncStatus: { type: String, default: "" },
       lastSyncError: { type: String, default: "" },
     },
+    googleSheets: {
+      enabled: { type: Boolean, default: false },
+      appScriptUrl: { type: String, default: "" },
+      secret: { type: String, default: "" },
+      spreadsheetId: { type: String, default: "" },
+      productsTabName: { type: String, default: "Products" },
+      ordersTabName: { type: String, default: "Orders" },
+      lastSyncedAt: { type: Date, default: null },
+      lastSyncStatus: { type: String, default: "" },
+      lastSyncError: { type: String, default: "" },
+      lastSyncStats: {
+        products: { type: Number, default: 0 },
+        orders: { type: Number, default: 0 },
+      },
+      lastConnectedAt: { type: Date, default: null },
+    },
   },
   { timestamps: true }
 );

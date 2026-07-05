@@ -2,6 +2,7 @@ import { Catagories } from "../../model/catagory.model.js";
 import Products from "../../model/product.model.js";
 import DraftProducts from "../../model/draftProduct.model.js";
 import { getNextSequence } from "../../model/counter.model.js";
+import { fireAndForgetSheetSync, syncProductToGoogleSheets } from "../../services/googleSheetsSync.service.js";
 import * as helpers from "./productHelpers.js";
 const { parseArrayField, parseHighlights, parseColorVariants, validateColorVariants, applyColorVariantsToDoc, validateMediaRules, uploadMedia, uploadVariantMedia, stageFromLabel, normalizeFiles, resolveVariantImageOrder } = helpers;
 export const uploadProduct = async (req, res) => {
@@ -162,6 +163,7 @@ export const uploadProduct = async (req, res) => {
       newProduct.video_public_id = videoPublicId;
     }
     await newProduct.save();
+    fireAndForgetSheetSync(syncProductToGoogleSheets(newProduct.product_id), "product");
     res.status(201).json({
       message: status === "published" ? "Product published successfully!" : "Draft saved successfully!",
       product: newProduct,

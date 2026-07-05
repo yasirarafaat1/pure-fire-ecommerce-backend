@@ -1,7 +1,9 @@
 import { Router } from "express";
 import {
   getSettings,
+  syncGoogleSheets,
   syncInstagram,
+  testGoogleSheets,
   testInstagram,
   updateSettings,
   uploadLogo,
@@ -21,6 +23,8 @@ router.post(
 );
 router.post("/instagram/test", requireAdminPermission("settings.manage"), asyncHandler(testInstagram));
 router.post("/instagram/sync", requireAdminPermission("settings.manage"), asyncHandler(syncInstagram));
+router.post("/google-sheets/test", requireAdminPermission("settings.manage"), asyncHandler(testGoogleSheets));
+router.post("/google-sheets/sync", requireAdminPermission("settings.manage"), asyncHandler(syncGoogleSheets));
 router.put(
   "/",
   requireAdminPermission("settings.manage"),
