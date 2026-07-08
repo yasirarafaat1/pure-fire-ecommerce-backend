@@ -35,6 +35,7 @@ import {
   estimateDelivery,
 } from "../controller/user.controller.js";
 import { addRecentSearch, addRecentViewed, getSuggestedProducts } from "../controller/activity.controller.js";
+import { getPublicNavStrip, getPublicSizeGuide } from "../controller/user/siteContent.controller.js";
 import { upload } from "../middleware/multer.middleware.js";
 import { requireUserAuth } from "../middleware/userAuth.middleware.js";
 import { detectAssistantAuth } from "../middleware/assistantOptionalAuth.middleware.js";
@@ -59,6 +60,8 @@ router.get("/top-products", getTopProducts);
 router.get("/get-categories", getCategories);
 router.get("/reviews", listPublicReviews);
 router.get("/instagram/reels", getInstagramReels);
+router.get("/nav-strip", getPublicNavStrip);
+router.get("/size-guide", getPublicSizeGuide);
 router.get("/get-product-reviews/:id", getProductReviews);
 router.post("/product-reviews", upload.single("reviewImage"), addProductReview);
 router.post("/wishlist/list", requireUserAuth, listWishlist);
