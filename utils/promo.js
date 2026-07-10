@@ -36,6 +36,9 @@ const isPromoActive = (promo, now = new Date()) => {
 export const computePromoSubtotal = (items = []) =>
   items.reduce((sum, item) => sum + getPrice(item) * getQty(item), 0);
 
+const computePromoQuantity = (items = []) =>
+  items.reduce((sum, item) => sum + getQty(item), 0);
+
 export const serializePromo = (promo) => ({
   id: String(promo._id || ""),
   code: normalizeCode(promo.code),
@@ -43,6 +46,7 @@ export const serializePromo = (promo) => ({
   discountType: promo.discountType,
   discountValue: Number(promo.discountValue || 0),
   minimumOrderAmount: Number(promo.minimumOrderAmount || 0),
+  minimumQuantity: Number(promo.minimumQuantity || 1),
   maxDiscountAmount: Number(promo.maxDiscountAmount || 0),
   target: promo.target || { scope: "ALL_PRODUCTS", productIds: [], categoryIds: [] },
   startsAt: promo.startsAt || null,
@@ -79,6 +83,19 @@ export const evaluatePromo = ({ promo, items = [], products = [], subtotal, now 
   }
 
   const cartSubtotal = Number.isFinite(Number(subtotal)) ? Number(subtotal) : computePromoSubtotal(items);
+  const cartQuantity = computePromoQuantity(items);
+  const minimumQuantity = Math.max(1, Number(promo.minimumQuantity || 1));
+
+  if (cartQuantity < minimumQuantity) {
+    return {
+      ok: false,
+      message: `Minimum item quantity is ${minimumQuantity}`,
+      discountAmount: 0,
+      subtotal: cartSubtotal,
+      totalAfterDiscount: cartSubtotal,
+    };
+  }
+
   if (cartSubtotal < Number(promo.minimumOrderAmount || 0)) {
     return {
       ok: false,

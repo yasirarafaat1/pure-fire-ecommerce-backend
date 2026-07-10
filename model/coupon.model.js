@@ -7,6 +7,7 @@ const CouponSchema = new mongoose.Schema(
     discountType: { type: String, enum: ["PERCENTAGE", "FIXED"], required: true },
     discountValue: { type: Number, required: true, min: 0 },
     minimumOrderAmount: { type: Number, default: 0, min: 0 },
+    minimumQuantity: { type: Number, default: 1, min: 1 },
     maxDiscountAmount: { type: Number, default: 0, min: 0 },
     usageLimit: { type: Number, default: 0, min: 0 },
     perCustomerLimit: { type: Number, default: 0, min: 0 },

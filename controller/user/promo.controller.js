@@ -66,7 +66,7 @@ export const getPublicPromos = async (req, res) => {
       : [];
 
     const promos = await Coupon.find(activePromoFilter())
-      .select("code description discountType discountValue minimumOrderAmount maxDiscountAmount target startsAt endsAt timer")
+      .select("code description discountType discountValue minimumOrderAmount minimumQuantity maxDiscountAmount target startsAt endsAt timer")
       .sort({ createdAt: -1 })
       .limit(30)
       .lean();

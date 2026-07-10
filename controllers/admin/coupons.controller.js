@@ -64,6 +64,7 @@ const couponPayload = (body) => ({
   discountType: String(body.discountType || "").toUpperCase(),
   discountValue: Number(body.discountValue),
   minimumOrderAmount: Number(body.minimumOrderAmount) || 0,
+  minimumQuantity: Math.max(1, Number(body.minimumQuantity) || 1),
   maxDiscountAmount: Number(body.maxDiscountAmount) || 0,
   usageLimit: Number(body.usageLimit) || 0,
   perCustomerLimit: Number(body.perCustomerLimit) || 0,
