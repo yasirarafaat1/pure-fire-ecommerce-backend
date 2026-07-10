@@ -4,6 +4,8 @@ import NavStripSetting from "../../model/navStripSetting.model.js";
 const MAX_TEXT_LENGTH = 120;
 const MAX_HREF_LENGTH = 500;
 const MAX_HTML_LENGTH = 3000;
+const TIMER_POSITIONS = new Set(["start", "end"]);
+const TIMER_MODES = new Set(["loop", "one_time"]);
 
 const stripTags = (value) => String(value || "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
 
@@ -51,12 +53,35 @@ const clampDuration = (value) => {
   return Math.min(10, Math.max(1, Math.round(parsed)));
 };
 
+const clampTimerMinutes = (value) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 60;
+  return Math.min(43200, Math.max(1, Math.round(parsed)));
+};
+
+const normalizeTimer = (timer = {}) => {
+  const mode = TIMER_MODES.has(timer.mode) ? timer.mode : "loop";
+  const startAtValue = timer.startAt ? new Date(timer.startAt) : null;
+  const startAt =
+    startAtValue && !Number.isNaN(startAtValue.getTime()) ? startAtValue : null;
+
+  return {
+    enabled: Boolean(timer.enabled),
+    position: TIMER_POSITIONS.has(timer.position) ? timer.position : "start",
+    mode,
+    durationMinutes: clampTimerMinutes(timer.durationMinutes),
+    startAt: mode === "one_time" ? startAt : null,
+    icon: "clock",
+  };
+};
+
 const normalizePayload = (payload = {}) => ({
   text: String(payload.text || "").trim(),
   textHtml: sanitizeNavStripHtml(payload.textHtml),
   hoverText: String(payload.hoverText || "").trim(),
   href: String(payload.href || "").trim(),
   isActive: payload.isActive !== undefined ? Boolean(payload.isActive) : true,
+  timer: normalizeTimer(payload.timer),
   order: Number.isFinite(Number(payload.order)) ? Number(payload.order) : 0,
 });
 
@@ -68,6 +93,9 @@ const validatePayload = (payload) => {
   if (payload.href.length > MAX_HREF_LENGTH) return `Link must be ${MAX_HREF_LENGTH} characters or less.`;
   if (payload.href && !payload.href.startsWith("/") && !/^https?:\/\//i.test(payload.href)) {
     return "Link must start with /, http://, or https://.";
+  }
+  if (payload.timer.enabled && payload.timer.mode === "one_time" && !payload.timer.startAt) {
+    return "Start date and time is required for one-time timer.";
   }
   return null;
 };

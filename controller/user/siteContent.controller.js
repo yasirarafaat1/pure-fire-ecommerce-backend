@@ -19,7 +19,7 @@ export const getPublicNavStrip = async (_req, res) => {
   const [items, settings] = await Promise.all([
     NavStrip.find({ isActive: true })
       .sort({ order: 1, createdAt: -1 })
-      .select("text textHtml hoverText href order")
+      .select("text textHtml hoverText href timer order createdAt")
       .lean(),
     NavStripSetting.findOne({ key: "default" }).lean(),
   ]);
