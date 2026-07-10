@@ -9,6 +9,9 @@ const PendingOrderSchema = new mongoose.Schema(
     email: { type: String },
     amount: { type: Number, default: 0 },
     currency: { type: String, default: "INR" },
+    promo_code: { type: String, default: "" },
+    promo_discount: { type: Number, default: 0 },
+    promo_snapshot: { type: mongoose.Schema.Types.Mixed, default: null },
     expiresAt: {
       type: Date,
       default: () => new Date(Date.now() + 24 * 60 * 60 * 1000),

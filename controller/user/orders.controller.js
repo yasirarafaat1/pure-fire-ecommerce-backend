@@ -2,9 +2,11 @@ import Orders from "../../model/orders.model.js";
 import PendingOrders from "../../model/pendingOrder.model.js";
 import Products from "../../model/product.model.js";
 import Addresses from "../../model/addresses.model.js";
+import Coupon from "../../model/coupon.model.js";
 import { getNextSequence } from "../../model/counter.model.js";
 import { createShiprocketShipment, getMockOrderStatus, isShiprocketTestMode } from "../../config/shiprocket.js";
 import { fireAndForgetSheetSync, syncOrderToGoogleSheets } from "../../services/googleSheetsSync.service.js";
+import { evaluatePromo, normalizeCode } from "../../utils/promo.js";
 export const getUserOrders = async (req, res) => {
   try {
     const email = (req.body?.email || "").trim();
@@ -41,7 +43,7 @@ export const createOrder = async (req, res) => {
       return res.status(500).json({ status: false, message: "Razorpay keys missing in env" });
     }
 
-    const { items = [], address_id, email } = req.body || {};
+    const { items = [], address_id, email, promo_code } = req.body || {};
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ status: false, message: "Items required" });
     }
@@ -95,6 +97,35 @@ export const createOrder = async (req, res) => {
     }
     if (!amountPaise) amountPaise = 100;
 
+    let promoCode = "";
+    let promoDiscountRupees = 0;
+    let promoSnapshot = null;
+    const normalizedPromoCode = normalizeCode(promo_code);
+
+    if (normalizedPromoCode) {
+      const promo = await Coupon.findOne({ code: normalizedPromoCode }).lean();
+      if (!promo) {
+        return res.status(400).json({ status: false, message: "Promo code not found" });
+      }
+      const promoResult = evaluatePromo({
+        promo,
+        items: orderItems.map((item) => ({
+          product_id: item.product_id,
+          quantity: item.quantity,
+          price: item.price,
+        })),
+        products,
+        subtotal: amountPaise / 100,
+      });
+      if (!promoResult.ok) {
+        return res.status(400).json({ status: false, message: promoResult.message });
+      }
+      promoCode = promoResult.promo.code;
+      promoDiscountRupees = promoResult.discountAmount;
+      promoSnapshot = promoResult.promo;
+      amountPaise = Math.max(100, amountPaise - promoDiscountRupees * 100);
+    }
+
     const payload = {
       amount: Math.round(amountPaise),
       currency: "INR",
@@ -126,6 +157,9 @@ export const createOrder = async (req, res) => {
       email: email || addressDoc.email || "",
       amount: payload.amount,
       currency: payload.currency,
+      promo_code: promoCode,
+      promo_discount: Math.round(promoDiscountRupees * 100),
+      promo_snapshot: promoSnapshot,
     });
 
     return res.status(200).json({
@@ -172,6 +206,9 @@ export const confirmPayment = async (req, res) => {
         payment_method: "Razorpay",
         amount: pending.amount,
         currency: pending.currency,
+        promo_code: pending.promo_code || "",
+        promo_discount: pending.promo_discount || 0,
+        promo_snapshot: pending.promo_snapshot || null,
         razorpay_order_id,
         razorpay_payment_id,
         razorpay_signature,
@@ -188,6 +225,15 @@ export const confirmPayment = async (req, res) => {
         pinCode: addressDoc?.pinCode || addressDoc?.postal_code || "",
         addressType: addressDoc?.addressType || "",
       });
+      if (pending.promo_code) {
+        await Coupon.updateOne(
+          {
+            code: pending.promo_code,
+            $or: [{ usageLimit: 0 }, { $expr: { $lt: ["$usedCount", "$usageLimit"] } }],
+          },
+          { $inc: { usedCount: 1 } }
+        );
+      }
       await PendingOrders.deleteOne({ _id: pending._id });
     } else {
       order.payment_status = "paid";

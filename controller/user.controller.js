@@ -9,3 +9,4 @@ export { getUserOrders, createOrder, confirmPayment } from "./user/orders.contro
 export { downloadOrderInvoice } from "./user/invoices.controller.js";
 export { updateUserAddress, getUserAddresses, createNewAddress } from "./user/addresses.controller.js";
 export { cancelOrder, requestReturn, lookupPincode, estimateDelivery } from "./user/orderActions.controller.js";
+export { validatePromoCode, getPublicPromos } from "./user/promo.controller.js";

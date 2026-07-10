@@ -31,6 +31,8 @@ import {
   confirmPayment,
   cancelOrder,
   requestReturn,
+  validatePromoCode,
+  getPublicPromos,
   lookupPincode,
   estimateDelivery,
 } from "../controller/user.controller.js";
@@ -83,6 +85,8 @@ router.post("/get-orders", getUserOrders);
 router.get("/orders/:orderId/invoice/download", requireUserAuth, downloadOrderInvoice);
 router.post("/create-order", createOrder);
 router.post("/payment-success", confirmPayment);
+router.post("/validate-promo", validatePromoCode);
+router.get("/promos/public", getPublicPromos);
 router.post("/cancel-order", cancelOrder);
 router.post("/return-order", requireUserAuth, requestReturn);
 router.get("/pincode/:pin", lookupPincode);
