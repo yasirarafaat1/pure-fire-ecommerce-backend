@@ -1,10 +1,12 @@
 import Products from "../../model/product.model.js";
 import { Catagories } from "../../model/catagory.model.js";
+import Coupon from "../../model/coupon.model.js";
 import Orders from "../../model/orders.model.js";
 import Reviews from "../../model/review.model.js";
 import Wishlist from "../../model/wishlist.model.js";
 import { buildProductSearchFilter, filterProductsByColorName, pickMatchedColor, parseSearchQuery, buildTokenRegex } from "../../utils/search.js";
 import { getCache, setCache } from "../../utils/cache.js";
+import { promoMatchesItems, serializePromo } from "../../utils/promo.js";
 const CACHE_TTL_SHORT = Number(process.env.CACHE_TTL_SHORT || 15000);
 const CACHE_TTL_MED = Number(process.env.CACHE_TTL_MED || 30000);
 const CACHE_TTL_LONG = Number(process.env.CACHE_TTL_LONG || 120000);
@@ -13,6 +15,44 @@ const parsePageLimit = (req) => {
   const limit = Math.max(Math.min(parseInt(req.query.limit || "12", 10), 100), 1);
   return { page, limit };
 };
+
+const publicPromoFilter = (now = new Date()) => ({
+  status: "ACTIVE",
+  $and: [
+    { $or: [{ endsAt: null }, { endsAt: { $gte: now } }] },
+    { $or: [{ usageLimit: 0 }, { $expr: { $lt: ["$usedCount", "$usageLimit"] } }] },
+  ],
+});
+
+const loadProductPromos = async (product) => {
+  if (!product?.product_id) return [];
+
+  const item = {
+    product_id: product.product_id,
+    quantity: 1,
+    price: Number(product.selling_price || product.price || 1),
+  };
+  const products = [
+    {
+      product_id: product.product_id,
+      catagory_id: product.catagory_id,
+    },
+  ];
+  const promos = await Coupon.find(publicPromoFilter())
+    .select("code description discountType discountValue minimumOrderAmount minimumQuantity maxDiscountAmount target startsAt endsAt timer")
+    .sort({ createdAt: -1 })
+    .limit(30)
+    .lean();
+
+  return promos
+    .filter((promo) => {
+      const scope = promo.target?.scope || "ALL_PRODUCTS";
+      if (scope === "ALL_PRODUCTS") return false;
+      return promoMatchesItems({ promo, items: [item], products });
+    })
+    .map(serializePromo);
+};
+
 export const showProducts = async (req, res) => {
   try {
     const { page, limit } = parsePageLimit(req);
@@ -74,8 +114,9 @@ export const getProductById = async (req, res) => {
       catagory_id: 1, // legacy numeric fallback
       Catagory: cat ? { id: 1, name: cat.name } : undefined,
     };
+    const promos = await loadProductPromos(product);
 
-    return res.status(200).json({ status: 200, data: [shaped] });
+    return res.status(200).json({ status: 200, data: [shaped], promos });
   } catch (error) {
     console.error("getProductById error:", error);
     return res.status(500).json({ status: false, message: "Server error" });

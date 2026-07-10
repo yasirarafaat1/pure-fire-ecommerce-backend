@@ -11,7 +11,6 @@ import {
 const activePromoFilter = (now = new Date()) => ({
   status: "ACTIVE",
   $and: [
-    { $or: [{ startsAt: null }, { startsAt: { $lte: now } }] },
     { $or: [{ endsAt: null }, { endsAt: { $gte: now } }] },
     { $or: [{ usageLimit: 0 }, { $expr: { $lt: ["$usedCount", "$usageLimit"] } }] },
   ],
