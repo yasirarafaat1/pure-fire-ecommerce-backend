@@ -1,7 +1,7 @@
 import AssistantFeedback from "../../model/assistantFeedback.model.js";
 import AssistantSession from "../../model/assistantSession.model.js";
 import { detectAssistantIntent } from "../../services/assistant/assistantIntentService.js";
-import { refineIntentWithAi } from "../../services/assistant/assistantAiService.js";
+import { generateLauncherSuggestionsWithAi, refineIntentWithAi } from "../../services/assistant/assistantAiService.js";
 import {
   canAccessSession,
   createOrResumeAssistantSession,
@@ -39,6 +39,12 @@ const sanitizeReplyTo = (value) => {
   };
 };
 
+const sanitizeSuggestions = (value) =>
+  (Array.isArray(value) ? value : [])
+    .map((item) => sanitizeText(item, 90))
+    .filter((item) => item.length >= 3)
+    .slice(0, 8);
+
 export const createAssistantSession = async (req, res) => {
   try {
     const userId = req.assistantAuth?.email || "";
@@ -58,6 +64,25 @@ export const createAssistantSession = async (req, res) => {
   } catch (error) {
     console.error("createAssistantSession error:", error);
     return res.status(500).json({ status: false, message: "Failed to start assistant" });
+  }
+};
+
+export const assistantLauncherSuggestions = async (req, res) => {
+  try {
+    const context = req.body?.context && typeof req.body.context === "object" ? req.body.context : {};
+    const fallback = sanitizeSuggestions(req.body?.fallback);
+    const suggestions = await generateLauncherSuggestionsWithAi({ context, fallback });
+
+    return res.status(200).json({
+      status: true,
+      suggestions: sanitizeSuggestions(suggestions).length ? sanitizeSuggestions(suggestions) : fallback,
+    });
+  } catch (error) {
+    console.error("assistantLauncherSuggestions error:", error);
+    return res.status(200).json({
+      status: true,
+      suggestions: sanitizeSuggestions(req.body?.fallback),
+    });
   }
 };
 

@@ -45,6 +45,7 @@ import { assistantRateLimit } from "../middleware/assistantRateLimit.middleware.
 import {
   assistantFeedback,
   assistantHistory,
+  assistantLauncherSuggestions,
   assistantSessions,
   assistantOrderLookup,
   createAssistantSession,
@@ -95,6 +96,7 @@ router.post("/activity/search", requireUserAuth, addRecentSearch);
 router.post("/activity/view", requireUserAuth, addRecentViewed);
 router.get("/suggested-products", requireUserAuth, getSuggestedProducts);
 router.post("/assistant/session", detectAssistantAuth, createAssistantSession);
+router.post("/assistant/launcher-suggestions", detectAssistantAuth, assistantLauncherSuggestions);
 router.post("/assistant/message", detectAssistantAuth, assistantRateLimit, sendAssistantMessage);
 router.post("/assistant/order-lookup", detectAssistantAuth, assistantRateLimit, assistantOrderLookup);
 router.post("/assistant/feedback", detectAssistantAuth, assistantFeedback);
