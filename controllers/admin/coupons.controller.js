@@ -35,6 +35,14 @@ const dateOrNull = (value) => {
   return Number.isNaN(date.getTime()) ? null : date;
 };
 
+const normalizeTimerType = (timer = {}) => {
+  const rawType = String(timer.type || timer.timerType || timer.mode || "").toUpperCase();
+  if (rawType === "ONE_TIME" || rawType === "ONETIME") return "ONE_TIME";
+  if (rawType === "LOOP" || rawType === "REPEATING" || rawType === "REPEATING_COUNTDOWN") return "LOOP";
+  if (rawType === "FIXED_WINDOW" || rawType === "FIXED") return "FIXED_WINDOW";
+  return "";
+};
+
 const couponTargetPayload = (body) => {
   const target = body.target || {};
   const scope = targetScopes.includes(target.scope) ? target.scope : "ALL_PRODUCTS";
@@ -48,7 +56,8 @@ const couponTargetPayload = (body) => {
 const couponTimerPayload = (body) => {
   const timer = body.timer || {};
   const enabled = Boolean(timer.enabled);
-  const type = timerTypes.includes(timer.type) ? timer.type : "FIXED_WINDOW";
+  const normalizedType = normalizeTimerType(timer);
+  const type = enabled ? normalizedType : normalizedType || "FIXED_WINDOW";
   return {
     enabled,
     type,
@@ -89,6 +98,14 @@ const validate = (payload) => {
   if (payload.discountType === "PERCENTAGE" && payload.discountValue > 100) {
     return "Percentage discount cannot exceed 100";
   }
+  const hasMinimumOrderAmount = Number(payload.minimumOrderAmount || 0) > 0;
+  const hasMinimumQuantity = Number(payload.minimumQuantity || 1) > 1;
+  if (!hasMinimumOrderAmount && !hasMinimumQuantity) {
+    return "Select either minimum order value or minimum item quantity";
+  }
+  if (hasMinimumOrderAmount && hasMinimumQuantity) {
+    return "Use only one minimum requirement for a promo code";
+  }
   if (payload.startsAt && payload.endsAt && payload.endsAt <= payload.startsAt) {
     return "End date must be after start date";
   }
@@ -99,6 +116,7 @@ const validate = (payload) => {
     return "Select at least one category for this promo code";
   }
   if (payload.timer.enabled) {
+    if (!timerTypes.includes(payload.timer.type)) return "Timer type is required";
     if (!payload.timer.startAt) return "Timer start date and time is required";
     if (payload.timer.type === "FIXED_WINDOW" && !payload.timer.endAt) {
       return "Fixed window timer needs an end date and time";

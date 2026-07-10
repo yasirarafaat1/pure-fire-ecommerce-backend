@@ -15,6 +15,13 @@ const isPromoActive = (promo, now = new Date()) => {
   if (promo.endsAt && new Date(promo.endsAt) < now) {
     return { ok: false, message: "Promo has expired" };
   }
+  if (promo.usageLimit > 0 && promo.usedCount >= promo.usageLimit) {
+    return { ok: false, message: "Promo usage limit reached" };
+  }
+  return { ok: true, message: "" };
+};
+
+const isPromoTimerActive = (promo, now = new Date()) => {
   if (promo.timer?.enabled) {
     const start = promo.timer.startAt ? new Date(promo.timer.startAt) : null;
     const end = promo.timer.endAt ? new Date(promo.timer.endAt) : null;
@@ -26,9 +33,6 @@ const isPromoActive = (promo, now = new Date()) => {
       const oneTimeEnd = new Date(start.getTime() + promo.timer.durationMinutes * 60 * 1000);
       if (oneTimeEnd < now) return { ok: false, message: "Promo timer has ended" };
     }
-  }
-  if (promo.usageLimit > 0 && promo.usedCount >= promo.usageLimit) {
-    return { ok: false, message: "Promo usage limit reached" };
   }
   return { ok: true, message: "" };
 };
@@ -114,6 +118,11 @@ export const evaluatePromo = ({ promo, items = [], products = [], subtotal, now 
       subtotal: cartSubtotal,
       totalAfterDiscount: cartSubtotal,
     };
+  }
+
+  const timer = isPromoTimerActive(promo, now);
+  if (!timer.ok) {
+    return { ok: false, message: timer.message, discountAmount: 0, subtotal: cartSubtotal, totalAfterDiscount: cartSubtotal };
   }
 
   const rawDiscount =
