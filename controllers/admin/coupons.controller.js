@@ -31,7 +31,9 @@ const uniqueObjectIds = (value) =>
 
 const dateOrNull = (value) => {
   if (!value) return null;
-  const date = new Date(value);
+  const raw = value instanceof Date ? value : String(value).trim();
+  if (!raw) return null;
+  const date = raw instanceof Date ? raw : new Date(raw);
   return Number.isNaN(date.getTime()) ? null : date;
 };
 
@@ -77,8 +79,8 @@ const couponPayload = (body) => ({
   maxDiscountAmount: Number(body.maxDiscountAmount) || 0,
   usageLimit: Number(body.usageLimit) || 0,
   perCustomerLimit: Number(body.perCustomerLimit) || 0,
-  startsAt: body.startsAt ? new Date(body.startsAt) : null,
-  endsAt: body.endsAt ? new Date(body.endsAt) : null,
+  startsAt: dateOrNull(body.startsAt),
+  endsAt: dateOrNull(body.endsAt),
   target: couponTargetPayload(body),
   timer: couponTimerPayload(body),
   status: body.status === "DISABLED" ? "DISABLED" : "ACTIVE",
